@@ -6,22 +6,23 @@ Standalone YOLO detection test with webcam preview.
 
 Layered false-positive filtering:
   1. Class grouping   (cake/cake 2 → CAKE, donut/donut 1 → DONUT)
-  2. Per-group confidence filter  (CAKE >= 0.40, DONUT >= 0.55 by default)
-  3. Per-group bbox area filter  (CAKE >= 900px², DONUT >= 1500px² by default)
+  2. Per-group confidence filter  (CAKE >= 0.55, DONUT >= 0.65 by default)
+  3. Per-group bbox area filter  (CAKE >= 1500px², DONUT >= 1800px² by default)
   4. Global area / aspect filters
   5. Group-level NMS (within same class group)
-  6. Temporal stability (CANDIDATE → TARGET LOCKED)
+  6. Cross-group duplicate suppression
+  7. Temporal stability (CANDIDATE → TARGET LOCKED)
 
 Usage:
-  /home/andra/envs/robot_yolo_env/bin/python tools/test_yolo_camera.py --show --device auto --roi 100,250,620,470 --cake-conf 0.4 --donut-conf 0.55 --stable-frames 3 --center-tolerance 45 --save-debug
+  /home/andra/envs/robot_yolo_env/bin/python tools/test_yolo_camera.py --show --device auto --roi 100,250,620,470 --cake-conf 0.55 --donut-conf 0.65 --stable-frames 5 --center-tolerance 25 --save-debug
   /home/andra/envs/robot_yolo_env/bin/python tools/test_yolo_camera.py --raw-preview --show
 
 Arguments:
   --model             YOLO .pt weights  (default: assets/best.pt)
   --cam               webcam device index  (default: 0)
   --conf              global confidence fallback  (default: 0.5)
-  --cake-conf         CAKE confidence threshold  (default: 0.40)
-  --donut-conf        DONUT confidence threshold  (default: 0.55)
+  --cake-conf         CAKE confidence threshold  (default: 0.55)
+  --donut-conf        DONUT confidence threshold  (default: 0.65)
   --imgsz             inference image size px  (default: 640)
   --show              display annotated preview window
   --save-debug        save debug_yolo_raw.jpg and debug_yolo_annotated.jpg
@@ -31,14 +32,20 @@ Arguments:
   --max-det           max YOLO detections per frame  (default: 5)
   --min-area          global min bbox area px²  (default: 800)
   --max-area          global max bbox area px²  (default: 50000)
-  --cake-min-area     CAKE min bbox area px²  (default: 900)
-  --donut-min-area    DONUT min bbox area px²  (default: 1500)
+  --cake-min-area     CAKE min bbox area px²  (default: 1500)
+  --donut-min-area    DONUT min bbox area px²  (default: 1800)
   --aspect-min        min bbox aspect ratio (default: 0.4)
   --aspect-max        max bbox aspect ratio (default: 2.5)
-  --group-nms-iou     IoU threshold for group-level NMS  (default: 0.5)
-  --stable-frames     consecutive frames for TARGET LOCKED  (default: 3)
-  --center-tolerance  pixel tolerance for stable center  (default: 45)
+  --group-nms-iou     IoU threshold for group-level NMS  (default: 0.35)
+  --cross-nms-iou     IoU threshold for cross-group duplicate suppression (default: 0.30)
+  --stable-frames     consecutive frames for TARGET LOCKED  (default: 5)
+  --center-tolerance  pixel tolerance for stable center  (default: 25)
   --show-rejected     show rejected detections in red
+
+Warning:
+  Testing with objects displayed on a phone screen, held in hand, or near
+  cluttered backgrounds can create false detections. Final validation must use
+  physical objects on the checkerboard workspace.
 """
 
 import argparse
@@ -61,20 +68,21 @@ except ImportError:
 DEFAULT_MODEL          = "assets/best.pt"
 DEFAULT_CAM           = 0
 DEFAULT_CONF          = 0.5
-DEFAULT_CAKE_CONF     = 0.40
-DEFAULT_DONUT_CONF    = 0.55
+DEFAULT_CAKE_CONF     = 0.55
+DEFAULT_DONUT_CONF    = 0.65
 DEFAULT_IMGSZ         = 640
 DEFAULT_DEVICE        = "auto"
 DEFAULT_MAXDET        = 5
 DEFAULT_MINAREA       = 800
 DEFAULT_MAXAREA       = 50000
-DEFAULT_CAKE_MINAREA  = 900
-DEFAULT_DONUT_MINAREA = 1500
+DEFAULT_CAKE_MINAREA  = 1500
+DEFAULT_DONUT_MINAREA = 1800
 DEFAULT_ASPECT_MIN    = 0.4
 DEFAULT_ASPECT_MAX    = 2.5
-DEFAULT_NMS_IOU       = 0.5
-DEFAULT_STABLE_FRAMES = 3     # reduced from 5 — easier to lock
-DEFAULT_CENTER_TOL   = 45    # increased from 30 — more tolerance
+DEFAULT_NMS_IOU       = 0.35
+DEFAULT_CROSS_NMS_IOU = 0.30
+DEFAULT_STABLE_FRAMES = 5
+DEFAULT_CENTER_TOL   = 25
 
 # ── Fixed window ──────────────────────────────────────────────────────────────
 WINDOW_NAME = "Robot Vision YOLO Debug"
@@ -220,6 +228,22 @@ def group_level_nms(dets: list, iou_thr: float) -> list:
             if i not in supp:
                 result.append(d)
     return result
+
+
+def cross_group_nms(dets: list, iou_thr: float) -> tuple[list, list]:
+    """Suppress overlapping accepted boxes across different class groups."""
+    kept = []
+    rejected = []
+    for d in sorted(dets, key=lambda item: item["conf"], reverse=True):
+        duplicate = any(
+            d["group"] != k["group"] and compute_iou(d["bbox"], k["bbox"]) >= iou_thr
+            for k in kept
+        )
+        if duplicate:
+            rejected.append({**d, "reject_reason": "cross_nms"})
+        else:
+            kept.append(d)
+    return kept, rejected
 
 
 def filter_detections(raw_dets: list,
@@ -518,6 +542,7 @@ def run_detection(model, cam: int,
                  min_area: int, max_area: int,
                  aspect_min: float, aspect_max: float,
                  nms_iou: float,
+                 cross_nms_iou: float,
                  stable_frames: int, center_tol: int,
                  show_rejected: bool,
                  device: str) -> None:
@@ -541,12 +566,13 @@ def run_detection(model, cam: int,
     print(f"  area=[{min_area},{max_area}]  "
           f"cake_min={cake_min_area}  donut_min={donut_min_area}")
     print(f"  aspect=[{aspect_min},{aspect_max}]  "
-          f"nms_iou={nms_iou}")
+          f"nms_iou={nms_iou}  cross_nms_iou={cross_nms_iou}")
     print(f"  stable_frames={stable_frames}  center_tol={center_tol}px")
     if roi:
         print(f"  ROI: {roi}")
     else:
         print(f"  ROI: none (full-frame)")
+        print("  WARNING: Full-frame detection is for debug only and may produce false positives. Use checkerboard ROI.")
     print(f"  show_rejected={show_rejected}")
     print()
     print("  FRAME  STAT   GROUP   RAW              CONF       u       v  AREA  REASON")
@@ -586,7 +612,11 @@ def run_detection(model, cam: int,
         # Step 3 — group-level NMS
         acc = group_level_nms(acc, nms_iou)
 
-        # Step 4 — temporal stability
+        # Step 4 — cross-group duplicate suppression
+        acc, cross_rej = cross_group_nms(acc, cross_nms_iou)
+        rej.extend(cross_rej)
+
+        # Step 5 — temporal stability
         acc = tracker.update(acc)
 
         fps_s = 0.9 * fps_s + 0.1 / max(t - t_prev, 1e-6)
@@ -641,8 +671,11 @@ def main():
         "examples:\n"
         "  /home/andra/envs/robot_yolo_env/bin/python tools/test_yolo_camera.py "
         "--show --device auto --roi 100,250,620,470 "
-        "--cake-conf 0.4 --donut-conf 0.55 --stable-frames 3 --center-tolerance 45\n"
+        "--cake-conf 0.55 --donut-conf 0.65 --stable-frames 5 --center-tolerance 25\n"
         "  /home/andra/envs/robot_yolo_env/bin/python tools/test_yolo_camera.py --raw-preview --show\n"
+        "\nwarning:\n"
+        "  Phone screens, objects held in hand, and cluttered backgrounds can create false detections.\n"
+        "  Final validation must use physical objects on the checkerboard workspace.\n"
     )
     p = argparse.ArgumentParser(
         description="Standalone YOLO detection with layered false-positive filtering.",
@@ -667,6 +700,7 @@ def main():
     p.add_argument("--aspect-min",     type=float)
     p.add_argument("--aspect-max",    type=float)
     p.add_argument("--group-nms-iou", type=float)
+    p.add_argument("--cross-nms-iou", type=float)
     p.add_argument("--stable-frames",  type=int)
     p.add_argument("--center-tolerance", type=int)
     p.add_argument("--show-rejected", action="store_true")
@@ -688,6 +722,7 @@ def main():
     args.aspect_min     = args.aspect_min     or DEFAULT_ASPECT_MIN
     args.aspect_max     = args.aspect_max     or DEFAULT_ASPECT_MAX
     args.group_nms_iou  = args.group_nms_iou  or DEFAULT_NMS_IOU
+    args.cross_nms_iou  = args.cross_nms_iou  or DEFAULT_CROSS_NMS_IOU
     args.stable_frames  = args.stable_frames  or DEFAULT_STABLE_FRAMES
     args.center_tolerance = args.center_tolerance or DEFAULT_CENTER_TOL
 
@@ -703,7 +738,8 @@ def main():
           f"donut_min_area >= {args.donut_min_area}  "
           f"(global area [{args.min_area},{args.max_area}])")
     print(f"  aspect in [{args.aspect_min}, {args.aspect_max}]  "
-          f"nms_iou = {args.group_nms_iou}")
+          f"nms_iou = {args.group_nms_iou}  "
+          f"cross_nms_iou = {args.cross_nms_iou}")
     print(f"  stable_frames = {args.stable_frames}  "
           f"center_tolerance = {args.center_tolerance}px")
     print(f"  show_rejected = {args.show_rejected}")
@@ -715,6 +751,8 @@ def main():
         except ValueError as e:
             print(f"[ERROR] {e}")
             sys.exit(1)
+    else:
+        print("WARNING: Full-frame detection is for debug only and may produce false positives. Use checkerboard ROI.")
 
     if args.raw_preview:
         run_raw_preview(args.cam)
@@ -732,6 +770,7 @@ def main():
         min_area=args.min_area, max_area=args.max_area,
         aspect_min=args.aspect_min, aspect_max=args.aspect_max,
         nms_iou=args.group_nms_iou,
+        cross_nms_iou=args.cross_nms_iou,
         stable_frames=args.stable_frames,
         center_tol=args.center_tolerance,
         show_rejected=args.show_rejected,
