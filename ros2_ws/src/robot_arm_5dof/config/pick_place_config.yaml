@@ -1,0 +1,129 @@
+# Pick-and-place / class-based sorting configuration for robot_arm_5dof
+#
+# IMPORTANT: robot_x_m / robot_y_m are null until board-to-robot transform is calibrated.
+# robot_x_m and robot_y_m require Phase 3/4/5 calibration.
+# Z heights are approximate. Recalibrate before physical testing.
+#
+# The robot must NOT move based on uncalibrated drop-zone values.
+# DO NOT run autonomous sorting until all null values are filled.
+#
+# Units:
+#   board_x_cm, board_y_cm, bowl dimensions: cm
+#   robot_x_m, robot_y_m, z_*: meters
+#   confidence: float [0..1]
+#   areas: px² (pixel count)
+#   tolerances: pixels or cm as noted
+#
+# Class-based sorting:
+#   CAKE objects  → CAKE_BOWL / Bowl 1
+#   DONUT objects → DONUT_BOWL / Bowl 2
+#
+# Reference: blueprint.md Section 2b, claude.md "Class-Based Sorting Task"
+# ─────────────────────────────────────────────────────────────────────────────
+
+sorting:
+  enabled: true
+  mode: class_based_sorting
+  temporary_values: true
+  note: >
+    Approximate values. Recalibrate with real homography and board-to-robot
+    transform before physical sorting. robot_x_m and robot_y_m are null.
+  allow_temporary_drop_zones: true
+
+# YOLO class → logical group mapping
+class_groups:
+  CAKE:
+    raw_classes:
+      - cake
+      - cake 2
+    drop_zone: cake
+  DONUT:
+    raw_classes:
+      - donut
+      - donut 1
+    drop_zone: donut
+
+# Fixed calibrated drop zones (bowls/containers — NOT YOLO-detected targets)
+drop_zones:
+  cake:
+    label: CAKE_BOWL
+    container_id: 1
+    # Approximate board coordinates (cm) — calibrate with homography
+    board_x_cm: 7.5
+    board_y_cm: 6.0
+    # Bowl geometry (for drop validation)
+    bowl_diameter_top_cm: 11.0
+    bowl_diameter_base_cm: 8.0
+    bowl_height_cm: 5.0
+    safe_drop_radius_cm: 3.5
+    # robot frame positions — null until Phase 4 board-to-robot transform
+    robot_x_m: null
+    robot_y_m: null
+    z_hover_m: 0.13   # ~13 cm above board surface
+    z_place_m: 0.07  # ~7 cm (object drops into bowl)
+
+  donut:
+    label: DONUT_BOWL
+    container_id: 2
+    # Approximate board coordinates (cm) — calibrate with homography
+    board_x_cm: 19.5
+    board_y_cm: 6.0
+    # Bowl geometry (for drop validation)
+    bowl_diameter_top_cm: 11.0
+    bowl_diameter_base_cm: 8.0
+    bowl_height_cm: 5.0
+    safe_drop_radius_cm: 3.5
+    # robot frame positions — null until Phase 4 board-to-robot transform
+    robot_x_m: null
+    robot_y_m: null
+    z_hover_m: 0.13
+    z_place_m: 0.07
+
+# Workspace geometry (checkerboard)
+board_limits_cm:
+  x_min: 0.0
+  x_max: 27.0
+  y_min: 0.0
+  y_max: 18.0
+
+# Object pick-area — exclude edge regions of checkerboard
+pick_area_cm:
+  x_min: 4.5   # ~1.5 square from left edge
+  x_max: 22.5  # ~1.5 square from right edge
+  y_min: 11.0  # ~1.5 square from top edge
+  y_max: 17.0  # ~0.5 square from bottom edge
+
+# Heights (approximate — recalibrate with physical robot)
+heights_m:
+  z_hover: 0.13    # safe hover height above board
+  z_pick: null       # fill after physical pick test
+  z_lift: null       # fill after physical lift test
+  z_place: 0.07     # same as drop zone z_place_m (initial estimate)
+  z_clear: null       # fill after physical test
+  z_home: null       # HOME_SAFE height
+
+# Target selection strategy
+target_selection:
+  # Sort by: highest_confidence_then_nearest | round_robin
+  strategy: highest_confidence_then_nearest
+  # Always process one object at a time
+  process_one_at_a_time: true
+  # Only accept these class groups
+  allowed_groups: [CAKE, DONUT]
+  # Minimum YOLO confidence per group (reference — tuned in tools/test_yolo_camera.py)
+  min_confidence:
+    CAKE: 0.40
+    DONUT: 0.55
+
+# Safety — robot must NOT move unless all conditions pass
+safety:
+  # robot_x_m and robot_y_m must be calibrated
+  require_drop_zone_calibrated: false   # false = allow temp values in dev
+  # Validates object center is inside board_limits_cm
+  require_board_validation: true
+  # Validates IK reachability before motion
+  require_reachability_check: true
+  # Object must be TARGET LOCKED (not CANDIDATE)
+  require_temporal_stability: true
+  # Abort if object lost mid-motion
+  abort_on_target_lost: true

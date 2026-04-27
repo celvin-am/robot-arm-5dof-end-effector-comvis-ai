@@ -1,0 +1,50 @@
+# Board-to-robot coordinate transform for robot_arm_5dof
+#
+# Goal: convert board coordinates (cm) → robot base coordinates (m)
+#
+# Transform: P_robot = R * P_board + T
+#   or simplified (if robot is axis-aligned with board):
+#     X_robot = (X_board - offset_x) / 100
+#     Y_robot = (Y_board - offset_y) / 100
+#
+# All offset values must be measured physically (Phase 6).
+#
+# Board frame convention:
+#   Origin = top-left outer corner of checkerboard
+#   X_board = rightward
+#   Y_board = downward
+#
+# Robot frame convention:
+#   Origin = robot base center (at floor/mount level)
+#   X_robot = forward (direction base faces when ch1=90°)
+#   Y_robot = leftward
+#   Z_robot = upward
+#
+# Units: output is always in meters for ROS2 IK compatibility
+
+board_to_robot:
+  # Measured position of robot base relative to board origin (cm)
+  # These define the translation vector T
+  robot_base_x_board_cm: null     # fill after physical measurement
+  robot_base_y_board_cm: null     # fill after physical measurement
+
+  # Yaw offset: rotation of robot frame relative to board frame (degrees)
+  # 0 = robot X_robot axis aligned with board X_board
+  # Positive = robot is rotated counter-clockwise from board
+  robot_yaw_offset_deg: null      # fill after physical measurement
+
+  # Output unit
+  units_output: meter
+
+  # Optional: explicit rotation matrix elements (replace yaw_offset_deg if needed)
+  # Set rot_00, rot_01, rot_10, rot_11 to non-null values to use matrix form instead
+  rot_00: null                    # rotation matrix [0][0]
+  rot_01: null                    # rotation matrix [0][1]
+  rot_10: null                    # rotation matrix [1][0]
+  rot_11: null                    # rotation matrix [1][1]
+
+  # Workspace boundary in robot frame (m)
+  # Used by IK controller to reject out-of-reach targets
+  workspace_max_reach_m: 0.35     # conservative estimate, refine after calibration
+  workspace_min_z_m: 0.02         # minimum safe height above board
+  workspace_max_z_m: 0.30         # maximum height, keep gripper above board surface

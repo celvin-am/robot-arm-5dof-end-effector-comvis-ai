@@ -1,0 +1,70 @@
+# Named poses for robot_arm_5dof
+# All null values must be filled during physical calibration (Phase 5)
+#
+# Joint order: ch1, ch2, ch3, ch4, ch5, ch6
+# Units: degrees (matching servo command format)
+#
+# Home is NOT all-zero. Use HOME_SAFE for safe semi-folded ready pose.
+#
+# Pose definitions:
+#   HOME_SAFE           — safe startup/shutdown pose, gripper open
+#   READY_ABOVE_BOARD   — ready position above checkerboard
+#   HOVER_PICK_TEST     — hover above object before descending (manual test)
+#   PICK_TEST           — pick position, gripper at object height (manual test)
+#   LIFT_TEST           — lift position after picking (manual test)
+#   PLACE_TEST          — place position at drop zone height (manual test)
+
+poses:
+  HOME_SAFE:
+    description: Safe semi-folded ready pose. Gripper open, above board.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null    # 0 = open, 180 = closed. Set to open angle after calibration.
+
+  READY_ABOVE_BOARD:
+    description: Robot ready above checkerboard workspace.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+
+  HOVER_PICK_TEST:
+    description: Hover above detected object before descending (manual calibration).
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+
+  PICK_TEST:
+    description: Pick position, gripper at object height (manual calibration).
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+
+  LIFT_TEST:
+    description: Lift position after object is picked (manual calibration).
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+
+  PLACE_TEST:
+    description: Place position at drop zone height (manual calibration).
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null

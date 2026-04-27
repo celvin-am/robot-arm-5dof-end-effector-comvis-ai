@@ -1,0 +1,27 @@
+# Camera and vision configuration for robot_arm_5dof
+# Calibration file must be generated from camera calibration (e.g., using OpenCV)
+
+camera:
+  camera_id: 0                    # webcam device index (0 = first USB camera)
+  frame_width: 640
+  frame_height: 480
+  # Path to camera calibration .npz file from OpenCV calibrateCamera
+  # Expected contents: mtx (intrinsic matrix), dist (distortion coefficients)
+  calibration_file: null           # fill with absolute or package-relative path
+  use_undistortion: true           # apply cv2.undistort before processing frames
+
+# YOLO model configuration
+yolo:
+  # Path to best.pt (relative to package root or absolute)
+  model_path: null                # fill with path to best.pt
+  confidence_threshold: 0.5       # minimum confidence to publish detection
+  # Raw classes from best.pt:
+  #   cake, cake 2 → CAKE
+  #   donut, donut 1 → DONUT
+  class_groups:
+    CAKE:
+      - cake
+      - cake 2
+    DONUT:
+      - donut
+      - donut 1

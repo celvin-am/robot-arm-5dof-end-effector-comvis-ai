@@ -1,0 +1,34 @@
+# ROS2 build artifacts
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Accidental nested build artifacts
+**/build/
+**/install/
+**/log/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Editor
+.vscode/
+.idea/
+
+# Runtime/generated outputs
+*.bak
+*.tmp
+*.log
+*.npy
+debug_*.jpg
+camera_test_*.jpg
+
+# Large ML assets
+assets/*.pt
+assets/*.zip
+
+# OS
+.DS_Store

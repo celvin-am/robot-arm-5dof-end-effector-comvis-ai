@@ -1,0 +1,91 @@
+# Servo configuration for robot_arm_5dof
+# All null values must be filled during physical calibration (Phase 5)
+#
+# Units:
+#   angles in degrees
+#   pulse widths in microseconds
+#
+# Naming convention:
+#   J5 = wrist pitch (gripper up/down) ← NOT wrist yaw, NOT wrist roll
+#   J6 = gripper open-close actuator ← NOT part of DH kinematic chain
+
+servos:
+  ch1:
+    joint: base_yaw
+    model: MG996R
+    neutral_angle_deg: 90          # servo horn installed at this angle
+    home_angle_deg: null          # fill after calibration
+    min_angle_deg: null            # fill after calibration
+    max_angle_deg: null            # fill after calibration
+    direction: 1                  # 1=normal, -1=reversed. fill after calibration
+    offset_deg: 0                 # mechanical offset after horn installation
+    pulse_min_us: 600
+    pulse_max_us: 2400
+
+  ch2:
+    joint: shoulder_pitch
+    model: MG996R
+    neutral_angle_deg: 90
+    home_angle_deg: null
+    min_angle_deg: null
+    max_angle_deg: null
+    direction: 1
+    offset_deg: 0
+    pulse_min_us: 600
+    pulse_max_us: 2400
+
+  ch3:
+    joint: elbow_pitch
+    model: MG996R
+    neutral_angle_deg: 90
+    home_angle_deg: null
+    min_angle_deg: null
+    max_angle_deg: null
+    direction: 1
+    offset_deg: 0
+    pulse_min_us: 600
+    pulse_max_us: 2400
+
+  ch4:
+    joint: wrist_yaw
+    model: MG90S
+    neutral_angle_deg: 90
+    home_angle_deg: null
+    min_angle_deg: null
+    max_angle_deg: null
+    direction: 1
+    offset_deg: 0
+    pulse_min_us: 600
+    pulse_max_us: 2400
+
+  ch5:
+    joint: wrist_pitch            # moves gripper up and down
+    model: SG90
+    neutral_angle_deg: 90
+    home_angle_deg: null
+    min_angle_deg: null
+    max_angle_deg: null
+    direction: 1
+    offset_deg: 0
+    pulse_min_us: 600
+    pulse_max_us: 2400
+
+  ch6:
+    joint: gripper
+    model: MG90S
+    neutral_angle_deg: 90
+    open_angle_deg: null          # fill after calibration
+    close_angle_deg: null         # fill after calibration
+    min_angle_deg: null
+    max_angle_deg: null
+    direction: 1
+    offset_deg: 0
+    pulse_min_us: 600
+    pulse_max_us: 2400
+
+# Safety settings
+safety:
+  default_pose: HOME_SAFE
+  max_speed_deg_per_sec: 30       # max servo travel speed (software limit)
+  move_smoothing_sec: 0.5         # interpolate movements over this duration
+  serial_timeout_sec: 3.0         # ESP32 watchdog timeout

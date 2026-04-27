@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_arm_5dof</name>
+  <version>0.1.0</version>
+  <description>
+    5 DOF Robot Arm + Gripper with YOLO vision, ESP32 serial bridge,
+    and eye-to-hand overhead camera for donut/cake pick-and-place.
+  </description>
+  <maintainer email="user@example.com">Robot Arm Developer</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+  <exec_depend>pyyaml</exec_depend>
+  <exec_depend>opencv-python</exec_depend>
+  <exec_depend>ultralytics</exec_depend>
+  <exec_depend>numpy</exec_depend>
+  <exec_depend>pyserial</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

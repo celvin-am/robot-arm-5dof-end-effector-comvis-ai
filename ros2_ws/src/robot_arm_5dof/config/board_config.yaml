@@ -1,0 +1,42 @@
+# Board / checkerboard configuration for robot_arm_5dof
+#
+# Board spec:
+#   9 columns × 6 rows of squares, each 3 cm
+#   Total size: 27 cm × 18 cm
+#
+# Frame convention (board origin = top-left outer corner):
+#   X_board → rightward (27 cm span)
+#   Y_board → downward (18 cm span)
+#   Z_board → normal to board surface
+#
+# Homography note:
+#   OpenCV findChessboardCorners detects INNER corners only: (9-1) × (6-1) = 8×5
+#   For outer-corner homography to (0,0),(27,0),(0,18),(27,18),
+#   use manual 4-corner selection or compute outer corners analytically.
+#   See tools/test_homography.py for implementation details.
+
+board:
+  square_size_cm: 3.0             # each square is 3 cm
+  cols_squares: 9                 # squares in X direction
+  rows_squares: 6                 # squares in Y direction
+  width_cm: 27.0                  # total board width (9 * 3)
+  height_cm: 18.0                 # total board height (6 * 3)
+  origin: top_left                # board frame origin location
+  x_direction: right
+  y_direction: down
+
+  # Inner corner pattern for OpenCV findChessboardCorners
+  # A 9×6 square board has (9-1)×(6-1) = 8×5 inner corners
+  inner_corners_cols: 8
+  inner_corners_rows: 5
+
+  # Path to precomputed homography matrix (.npy file, 3x3 float)
+  # Computed by tools/test_homography.py during Phase 3 calibration
+  homography_file: null          # fill after homography calibration
+
+# Validation reference (target values after homography calibration):
+#   top-left outer     → ~(0, 0) cm
+#   top-right outer    → ~(27, 0) cm
+#   bottom-left outer  → ~(0, 18) cm
+#   bottom-right outer → ~(27, 18) cm
+# Tolerance: ±1 cm
