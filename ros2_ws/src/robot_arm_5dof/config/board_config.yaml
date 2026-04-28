@@ -11,6 +11,7 @@
 #
 # Homography note:
 #   OpenCV findChessboardCorners detects INNER corners only: (9-1) × (6-1) = 8×5
+#   If OpenCV inner corners are used later, 9×6 squares means 8×5 inner corners.
 #   For outer-corner homography to (0,0),(27,0),(0,18),(27,18),
 #   use manual 4-corner selection or compute outer corners analytically.
 #   See tools/test_homography.py for implementation details.

@@ -2,7 +2,7 @@
 #
 # IMPORTANT: robot_x_m / robot_y_m are null until board-to-robot transform is calibrated.
 # robot_x_m and robot_y_m require Phase 3/4/5 calibration.
-# Z heights are approximate. Recalibrate before physical testing.
+# Z heights are null until physically calibrated.
 #
 # The robot must NOT move based on uncalibrated drop-zone values.
 # DO NOT run autonomous sorting until all null values are filled.
@@ -26,8 +26,9 @@ sorting:
   mode: class_based_sorting
   temporary_values: true
   note: >
-    Approximate values. Recalibrate with real homography and board-to-robot
-    transform before physical sorting. robot_x_m and robot_y_m are null.
+    Bowl board centers and dimensions are temporary physical starting values.
+    Recalibrate with real homography and board-to-robot transform before
+    physical sorting. robot_x_m and robot_y_m are null.
   allow_temporary_drop_zones: true
 
 # YOLO class → logical group mapping
@@ -48,36 +49,36 @@ drop_zones:
   cake:
     label: CAKE_BOWL
     container_id: 1
-    # Approximate board coordinates (cm) — calibrate with homography
-    board_x_cm: 7.5
+    # Temporary board center (cm) — recalibrate with homography
+    board_x_cm: 7.0
     board_y_cm: 6.0
     # Bowl geometry (for drop validation)
-    bowl_diameter_top_cm: 11.0
-    bowl_diameter_base_cm: 8.0
-    bowl_height_cm: 5.0
-    safe_drop_radius_cm: 3.5
+    bowl_diameter_top_cm: 10.0
+    bowl_diameter_base_cm: 7.0
+    bowl_height_cm: 4.2
+    safe_drop_radius_cm: 3.0
     # robot frame positions — null until Phase 4 board-to-robot transform
     robot_x_m: null
     robot_y_m: null
-    z_hover_m: 0.13   # ~13 cm above board surface
-    z_place_m: 0.07  # ~7 cm (object drops into bowl)
+    z_hover_m: null
+    z_place_m: null
 
   donut:
     label: DONUT_BOWL
     container_id: 2
-    # Approximate board coordinates (cm) — calibrate with homography
-    board_x_cm: 19.5
+    # Temporary board center (cm) — recalibrate with homography
+    board_x_cm: 20.0
     board_y_cm: 6.0
     # Bowl geometry (for drop validation)
-    bowl_diameter_top_cm: 11.0
-    bowl_diameter_base_cm: 8.0
-    bowl_height_cm: 5.0
-    safe_drop_radius_cm: 3.5
+    bowl_diameter_top_cm: 10.0
+    bowl_diameter_base_cm: 7.0
+    bowl_height_cm: 4.2
+    safe_drop_radius_cm: 3.0
     # robot frame positions — null until Phase 4 board-to-robot transform
     robot_x_m: null
     robot_y_m: null
-    z_hover_m: 0.13
-    z_place_m: 0.07
+    z_hover_m: null
+    z_place_m: null
 
 # Workspace geometry (checkerboard)
 board_limits_cm:
@@ -93,12 +94,12 @@ pick_area_cm:
   y_min: 11.0  # ~1.5 square from top edge
   y_max: 17.0  # ~0.5 square from bottom edge
 
-# Heights (approximate — recalibrate with physical robot)
+# Heights (null until calibrated with physical robot)
 heights_m:
-  z_hover: 0.13    # safe hover height above board
+  z_hover: null      # fill after physical hover test
   z_pick: null       # fill after physical pick test
   z_lift: null       # fill after physical lift test
-  z_place: 0.07     # same as drop zone z_place_m (initial estimate)
+  z_place: null      # fill after physical place test
   z_clear: null       # fill after physical test
   z_home: null       # HOME_SAFE height
 
