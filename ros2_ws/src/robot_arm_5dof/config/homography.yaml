@@ -1,0 +1,46 @@
+created_at: '2026-04-28T20:50:09'
+mode: manual
+method: manual_outer_corners
+camera_id: 2
+requested_width: 640
+requested_height: 480
+actual_width: 640
+actual_height: 480
+board:
+  cols_squares: 9
+  rows_squares: 6
+  square_size_cm: 3.0
+  width_cm: 27.0
+  height_cm: 18.0
+  inner_corners_cols: 8
+  inner_corners_rows: 5
+source_points_px:
+- - 140.0
+  - 128.0
+- - 496.0
+  - 133.0
+- - 513.0
+  - 319.0
+- - 122.0
+  - 314.0
+destination_points_board_cm:
+- - 0.0
+  - 0.0
+- - 27.0
+  - 0.0
+- - 27.0
+  - 18.0
+- - 0.0
+  - 18.0
+homography:
+- - 0.08086106009167884
+  - 0.007825263879839894
+  - -12.322182189454542
+- - -0.0015956107733259618
+  - 0.11360748706080802
+  - -14.318372835517792
+- - -1.5159189620785111e-05
+  - 0.0005649333276074675
+  - 1.0
+reprojection_error_cm: null
+warning: Moving the camera after calibration invalidates this homography.

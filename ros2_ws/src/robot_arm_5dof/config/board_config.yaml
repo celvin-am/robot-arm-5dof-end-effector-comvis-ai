@@ -33,7 +33,7 @@ board:
 
   # Path to precomputed homography matrix (.npy file, 3x3 float)
   # Computed by tools/test_homography.py during Phase 3 calibration
-  homography_file: null          # fill after homography calibration
+  homography_file: ros2_ws/src/robot_arm_5dof/config/homography.npy          # fill after homography calibration
 
 # Validation reference (target values after homography calibration):
 #   top-left outer     → ~(0, 0) cm
