@@ -46,6 +46,9 @@ ik:
   default_tcp_pitch_down: true
 
 servo_model:
+  # Provisional IK dry-run convention only.
+  # Do not treat these direction/offset values as physical servo calibration
+  # until they are validated with hardware.
   ch1_base_yaw:
     zero_reference_deg: 90
     direction: 1
@@ -53,7 +56,7 @@ servo_model:
   ch2_shoulder_pitch:
     zero_reference_deg: 130
     direction: 1
-    offset_deg: 0
+    offset_deg: -90
   ch3_elbow_pitch:
     zero_reference_deg: 130
     direction: 1
