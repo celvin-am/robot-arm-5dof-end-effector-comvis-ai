@@ -44,7 +44,7 @@ void writeServoAngles(const int angles[SERVO_COUNT]) {
 }
 
 void printHelp() {
-  Serial.println("HELP PING STATUS HOME STOP LIMITS HELP");
+  Serial.println("HELP PING STATUS HOME MOVE_SAFE STOP LIMITS HELP");
 }
 
 void printStatus() {
@@ -182,6 +182,29 @@ void moveToAngles(const int requestedAngles[SERVO_COUNT], const char *label) {
   }
 }
 
+bool parseMoveSafeAngles(const char *line, int angles[SERVO_COUNT]) {
+  int parsed[SERVO_COUNT];
+  char tail = '\0';
+  int count = sscanf(
+      line,
+      "MOVE_SAFE %d %d %d %d %d %d %c",
+      &parsed[0],
+      &parsed[1],
+      &parsed[2],
+      &parsed[3],
+      &parsed[4],
+      &parsed[5],
+      &tail);
+  if (count != static_cast<int>(SERVO_COUNT)) {
+    return false;
+  }
+
+  for (size_t i = 0; i < SERVO_COUNT; ++i) {
+    angles[i] = parsed[i];
+  }
+  return true;
+}
+
 void handleCommand(char *line) {
   trimLine(line);
   toUpperInPlace(line);
@@ -226,6 +249,23 @@ void handleCommand(char *line) {
     }
     Serial.println("ACK HOME");
     moveToAngles(HOME_ANGLES, "HOME");
+    return;
+  }
+
+  if (strncmp(line, "MOVE_SAFE", 9) == 0) {
+    if (busyState) {
+      Serial.println("ERR BUSY MOVE_SAFE");
+      return;
+    }
+
+    int requestedAngles[SERVO_COUNT];
+    if (!parseMoveSafeAngles(line, requestedAngles)) {
+      Serial.println("ERR MALFORMED MOVE_SAFE");
+      return;
+    }
+
+    Serial.println("ACK MOVE_SAFE");
+    moveToAngles(requestedAngles, "MOVE_SAFE");
     return;
   }
 
