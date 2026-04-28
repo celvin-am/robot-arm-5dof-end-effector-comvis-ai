@@ -19,7 +19,7 @@ Usage:
 
 Arguments:
   --model             YOLO .pt weights  (default: assets/best.pt)
-  --cam               webcam device index  (default: 0)
+  --cam               webcam device index  (default: 2, external UVC camera)
   --conf              global confidence fallback  (default: 0.5)
   --cake-conf         CAKE confidence threshold  (default: 0.55)
   --donut-conf        DONUT confidence threshold  (default: 0.65)
@@ -66,7 +66,7 @@ except ImportError:
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 DEFAULT_MODEL          = "assets/best.pt"
-DEFAULT_CAM           = 0
+DEFAULT_CAM           = 2
 DEFAULT_CONF          = 0.5
 DEFAULT_CAKE_CONF     = 0.55
 DEFAULT_DONUT_CONF    = 0.65
