@@ -2,12 +2,13 @@
 #
 # Goal: convert board coordinates (cm) → robot base coordinates (m)
 #
-# Transform: P_robot = R * P_board + T
-#   or simplified (if robot is axis-aligned with board):
-#     X_robot = (X_board - offset_x) / 100
-#     Y_robot = (Y_board - offset_y) / 100
+# Transform:
+#   dx = board_x_cm - robot_base_x_board_cm
+#   dy = board_y_cm - robot_base_y_board_cm
+#   apply optional yaw_offset_deg around robot base
+#   convert cm to meters
 #
-# All offset values must be measured physically (Phase 6).
+# Current values are provisional physical measurements for Phase 4.
 #
 # Board frame convention:
 #   Origin = top-left outer corner of checkerboard
@@ -15,26 +16,32 @@
 #   Y_board = downward
 #
 # Robot frame convention:
-#   Origin = robot base center (at floor/mount level)
-#   X_robot = forward (direction base faces when ch1=90°)
-#   Y_robot = leftward
+#   Origin = robot base center
+#   Robot faces toward positive board Y direction
 #   Z_robot = upward
 #
-# Units: output is always in meters for ROS2 IK compatibility
+# Units:
+#   input board coordinates are centimeters
+#   output robot coordinates are meters
 
 board_to_robot:
-  # Measured position of robot base relative to board origin (cm)
-  # These define the translation vector T
-  robot_base_x_board_cm: null     # fill after physical measurement
-  robot_base_y_board_cm: null     # fill after physical measurement
+  # Provisional measured position of robot base relative to board origin (cm)
+  robot_base_x_board_cm: 13.5
+  robot_base_y_board_cm: -8.5
+
+  # Physical orientation note. Yaw offset remains configurable until validated.
+  robot_forward_direction_on_board: positive_y
 
   # Yaw offset: rotation of robot frame relative to board frame (degrees)
-  # 0 = robot X_robot axis aligned with board X_board
-  # Positive = robot is rotated counter-clockwise from board
-  robot_yaw_offset_deg: null      # fill after physical measurement
+  # 0 = use board-axis delta directly after subtracting base position
+  robot_yaw_offset_deg: 0.0
 
-  # Output unit
+  # Units
+  units_input: cm
   units_output: meter
+
+  status: provisional
+  note: yaw offset and transform must be physically validated before robot motion
 
   # Optional: explicit rotation matrix elements (replace yaw_offset_deg if needed)
   # Set rot_00, rot_01, rot_10, rot_11 to non-null values to use matrix form instead
