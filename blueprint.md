@@ -208,14 +208,14 @@ Sumber yang menjadi dasar rancangan:
 
 ### 4.1 Mapping Servo Final
 
-| Channel | Joint | Servo | Gerak | Fungsi |
-|---|---|---|---|---|
-| CH1 | J1 | MG996R | Yaw | Base putar kiri-kanan |
-| CH2 | J2 | MG996R | Pitch | Shoulder/bahu naik-turun |
-| CH3 | J3 | MG996R | Pitch | Elbow/siku menekuk |
-| CH4 | J4 | MG90S | Yaw | Wrist yaw / rotasi pergelangan |
-| CH5 | J5 | SG90 | Pitch | Wrist pitch / gripper atas-bawah |
-| CH6 | J6 | MG90S | Open-close | Gripper buka-tutup |
+| Channel | GPIO | Joint | Servo | Gerak | Fungsi |
+|---|---:|---|---|---|---|
+| CH1 | 13 | J1 | MG996R | Yaw | Base putar kiri-kanan |
+| CH2 | 14 | J2 | MG996R | Pitch | Shoulder/bahu naik-turun |
+| CH3 | 27 | J3 | MG996R | Pitch | Elbow/siku menekuk |
+| CH4 | 26 | J4 | MG90S | Pitch | Wrist pitch / gripper atas-bawah |
+| CH5 | 25 | J5 | SG90 | Yaw | Wrist yaw / rotasi pergelangan |
+| CH6 | 33 | J6 | MG90S | Open-close | Gripper buka-tutup |
 
 Konfigurasi servo final:
 
@@ -229,11 +229,16 @@ Konfigurasi servo final:
 Keputusan penting:
 
 ```text
-J5 adalah wrist pitch.
-J5 bergerak atas-bawah.
-J5 bukan wrist yaw dan bukan wrist roll.
+CH4/J4 adalah wrist pitch / gripper atas-bawah.
+CH5/J5 adalah wrist yaw / wrist rotate.
 J6 hanya actuator buka-tutup gripper.
 ```
+
+Sketch standalone ESP32/Arduino hanya dipakai sebagai bukti kalibrasi fisik
+untuk mapping channel, mapping GPIO, safe limits, HOME_SAFE, dan sudut
+gripper open/close. Jangan import hardcoded pick/place sequence, timing
+sequence, fixed target positions, final sorting route, atau autonomous motion
+logic dari sketch tersebut.
 
 ---
 
@@ -245,8 +250,8 @@ Urutan joint final:
 J1 = Base yaw
 J2 = Shoulder pitch
 J3 = Elbow pitch
-J4 = Wrist yaw
-J5 = Wrist pitch
+J4 = Wrist pitch
+J5 = Wrist yaw
 J6 = Gripper buka-tutup
 ```
 
@@ -289,8 +294,8 @@ Untuk robot ini:
 | `{0}` | Pusat base | Sumbu yaw base, vertikal |
 | `{1}` | Pusat shoulder | Sumbu rotasi shoulder pitch |
 | `{2}` | Pusat elbow | Sumbu rotasi elbow pitch |
-| `{3}` | Pusat wrist yaw | Sumbu rotasi wrist yaw |
-| `{4}` | Pusat wrist pitch | Sumbu rotasi wrist pitch |
+| `{3}` | Pusat wrist pitch | Sumbu rotasi wrist pitch |
+| `{4}` | Pusat wrist yaw | Sumbu rotasi wrist yaw |
 | `{5}` | TCP / tool | Frame end-effector, bukan servo gripper |
 
 Robot harus digambar sebagai **side-view serial arm**, bukan sebagai robot industri generik.
@@ -353,8 +358,8 @@ Untuk kontrol awal robot fisik, gunakan **IK geometrik sederhana** lebih dulu:
 ```text
 J1 = arah XY target terhadap base
 J2-J3 = planar 2-link IK untuk reach
-J4 = wrist yaw sesuai kebutuhan orientasi gripper
-J5 = wrist pitch compensation agar gripper mengarah ke bawah
+J4 = wrist pitch, dikalibrasi agar gripper mengarah aman
+J5 = wrist yaw sesuai kebutuhan orientasi gripper
 J6 = gripper open-close
 ```
 
@@ -373,13 +378,15 @@ Alasan IK geometrik diprioritaskan:
 - Servo hobby punya backlash.
 - Parameter fisik bisa berbeda dari CAD/dokumen.
 - Pick-and-place hanya membutuhkan XY + Z preset.
-- J5 dapat dipakai sebagai kompensasi orientasi gripper.
+- Kompensasi wrist harus dikalibrasi ulang sesuai mapping fisik CH4/CH5.
 ```
 
-Konsep kompensasi J5:
+Catatan kalibrasi kompensasi wrist:
 
 ```text
-θ5 ≈ -(θ2 + θ3) + offset
+Asumsi lama kompensasi wrist-pitch tidak valid untuk mapping fisik ini.
+Kalibrasi ulang kompensasi wrist dengan CH4/J4 sebagai wrist pitch.
+Gunakan CH5/J5 untuk wrist yaw/orientation.
 ```
 
 Rumus ini belum final, harus dikalibrasi terhadap arah mounting servo.
@@ -601,12 +608,12 @@ Template tabel:
 
 | CH | Joint | Servo | Home | Min | Max | Direction | Catatan |
 |---|---|---|---:|---:|---:|---|---|
-| CH1 | J1 Base yaw | MG996R | TBD | TBD | TBD | TBD | pusat base |
-| CH2 | J2 Shoulder | MG996R | TBD | TBD | TBD | TBD | bahu |
-| CH3 | J3 Elbow | MG996R | TBD | TBD | TBD | TBD | siku |
-| CH4 | J4 Wrist yaw | MG90S | TBD | TBD | TBD | TBD | rotasi pergelangan |
-| CH5 | J5 Wrist pitch | SG90 | TBD | TBD | TBD | TBD | atas-bawah gripper |
-| CH6 | Gripper | MG90S | TBD | TBD | TBD | TBD | buka/tutup |
+| CH1 | J1 Base yaw | MG996R | 90 | 40 | 140 | TBD | GPIO13, pusat base |
+| CH2 | J2 Shoulder | MG996R | 130 | 40 | 140 | TBD | GPIO14, bahu |
+| CH3 | J3 Elbow | MG996R | 130 | 40 | 140 | TBD | GPIO27, siku |
+| CH4 | J4 Wrist pitch | MG90S | 95 | 40 | 140 | TBD | atas-bawah gripper |
+| CH5 | J5 Wrist yaw | SG90 | 60 | 40 | 140 | TBD | rotasi pergelangan |
+| CH6 | Gripper | MG90S | 45 | 10 | 60 | TBD | GPIO33, buka/tutup, open=50, close=15 |
 
 Prosedur:
 
@@ -637,8 +644,8 @@ Langkah:
 2. Gerakkan CH1 ke arah tengah board.
 3. Atur CH2 agar shoulder naik aman.
 4. Atur CH3 agar elbow menekuk.
-5. Atur CH4 netral.
-6. Atur CH5 agar gripper mengarah ke bawah.
+5. Atur CH4 agar gripper mengarah ke bawah.
+6. Atur CH5 wrist yaw netral.
 7. Atur CH6 gripper terbuka.
 8. Simpan sebagai HOME_SAFE.
 ```
@@ -647,7 +654,7 @@ Template:
 
 | Pose | CH1 | CH2 | CH3 | CH4 | CH5 | CH6 |
 |---|---:|---:|---:|---:|---:|---:|
-| HOME_SAFE | TBD | TBD | TBD | TBD | TBD | TBD |
+| HOME_SAFE | 90 | 130 | 130 | 95 | 60 | 45 |
 | READY_ABOVE_BOARD | TBD | TBD | TBD | TBD | TBD | TBD |
 | HOVER_PICK_TEST | TBD | TBD | TBD | TBD | TBD | TBD |
 | PICK_TEST | TBD | TBD | TBD | TBD | TBD | TBD |
@@ -834,8 +841,8 @@ Makna:
 | 1 | CH1 | Base yaw |
 | 2 | CH2 | Shoulder |
 | 3 | CH3 | Elbow |
-| 4 | CH4 | Wrist yaw |
-| 5 | CH5 | Wrist pitch |
+| 4 | CH4 | Wrist pitch |
+| 5 | CH5 | Wrist yaw |
 | 6 | CH6 | Gripper |
 
 Balasan ESP32:
@@ -979,45 +986,52 @@ servos:
   ch1:
     joint: base_yaw
     model: MG996R
-    home: null
-    min: null
-    max: null
+    gpio_pin: 13
+    home: 90
+    min: 40
+    max: 140
     direction: normal
   ch2:
     joint: shoulder_pitch
     model: MG996R
-    home: null
-    min: null
-    max: null
+    gpio_pin: 14
+    home: 130
+    min: 40
+    max: 140
     direction: normal
   ch3:
     joint: elbow_pitch
     model: MG996R
-    home: null
-    min: null
-    max: null
+    gpio_pin: 27
+    home: 130
+    min: 40
+    max: 140
     direction: normal
   ch4:
-    joint: wrist_yaw
+    joint: wrist_pitch
     model: MG90S
-    home: null
-    min: null
-    max: null
+    gpio_pin: 26
+    home: 95
+    min: 40
+    max: 140
     direction: normal
   ch5:
-    joint: wrist_pitch
+    joint: wrist_yaw
     model: SG90
-    home: null
-    min: null
-    max: null
+    gpio_pin: 25
+    home: 60
+    min: 40
+    max: 140
     direction: normal
   ch6:
     joint: gripper
     model: MG90S
-    open: null
-    close: null
-    min: null
-    max: null
+    gpio_pin: 33
+    home: 45
+    open: 50
+    close: 15
+    min: 10
+    max: 60
     direction: normal
 ```
 
@@ -1197,8 +1211,8 @@ Robot arm 5 DOF + gripper
 J1 = base yaw
 J2 = shoulder pitch
 J3 = elbow pitch
-J4 = wrist yaw
-J5 = wrist pitch atas-bawah
+J4 = wrist pitch atas-bawah
+J5 = wrist yaw / rotasi pergelangan
 J6 = gripper buka-tutup
 
 Kamera = overhead eye-to-hand
@@ -1223,4 +1237,3 @@ homography valid,
 board-to-robot transform valid,
 dan ESP32 serial command stabil.
 ```
-

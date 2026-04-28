@@ -17,12 +17,12 @@
 poses:
   HOME_SAFE:
     description: Safe semi-folded ready pose. Gripper open, above board.
-    ch1: null
-    ch2: null
-    ch3: null
-    ch4: null
-    ch5: null
-    ch6: null    # 0 = open, 180 = closed. Set to open angle after calibration.
+    ch1: 90
+    ch2: 130
+    ch3: 130
+    ch4: 95
+    ch5: 60
+    ch6: 45
 
   READY_ABOVE_BOARD:
     description: Robot ready above checkerboard workspace.

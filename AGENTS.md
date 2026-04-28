@@ -107,23 +107,28 @@ Do not design the robot task as four separate object categories unless the human
 
 ### 2.4 Servo Mapping
 
-Final servo mapping:
+Final servo mapping, updated from physical ESP32/Arduino calibration evidence:
 
-| Channel | Joint | Servo | Motion | Function |
-|---|---|---|---|---|
-| CH1 | J1 | MG996R | yaw | base rotation |
-| CH2 | J2 | MG996R | pitch | shoulder up/down |
-| CH3 | J3 | MG996R | pitch | elbow bend |
-| CH4 | J4 | MG90S | yaw | wrist yaw/orientation |
-| CH5 | J5 | SG90 | pitch | wrist pitch, gripper up/down |
-| CH6 | J6 | MG90S | open-close | gripper |
+| Channel | GPIO | Joint | Servo | Motion | Function |
+|---|---:|---|---|---|---|
+| CH1 | 13 | J1 | MG996R | yaw | base rotation |
+| CH2 | 14 | J2 | MG996R | pitch | shoulder up/down |
+| CH3 | 27 | J3 | MG996R | pitch | elbow bend |
+| CH4 | 26 | J4 | MG90S | pitch | wrist pitch, gripper up/down |
+| CH5 | 25 | J5 | SG90 | yaw | wrist yaw / wrist rotate |
+| CH6 | 33 | J6 | MG90S | open-close | gripper |
 
 Critical correction:
 
 ```text
-J5 is wrist pitch. It moves the gripper up and down.
-J5 is not wrist yaw and not wrist roll.
+CH4/J4 is wrist pitch. It moves the gripper up and down.
+CH5/J5 is wrist yaw / wrist rotate.
 ```
+
+The standalone ESP32/Arduino sketch is calibration evidence only for channel
+mapping, GPIO mapping, safe limits, HOME_SAFE, and gripper open/close angles.
+Do not import its hardcoded pick/place sequence, timing sequence, fixed target
+positions, final sorting route, or autonomous motion logic.
 
 ### 2.5 Kinematic Chain
 
@@ -133,8 +138,8 @@ Main kinematic chain:
 J1 = base yaw
 J2 = shoulder pitch
 J3 = elbow pitch
-J4 = wrist yaw
-J5 = wrist pitch
+J4 = wrist pitch
+J5 = wrist yaw
 ```
 
 Gripper actuator:
@@ -594,10 +599,11 @@ servos:
   ch1:
     joint: base_yaw
     model: MG996R
+    gpio_pin: 13
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 90
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
@@ -605,10 +611,11 @@ servos:
   ch2:
     joint: shoulder_pitch
     model: MG996R
+    gpio_pin: 14
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 130
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
@@ -616,32 +623,35 @@ servos:
   ch3:
     joint: elbow_pitch
     model: MG996R
+    gpio_pin: 27
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 130
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
   ch4:
-    joint: wrist_yaw
+    joint: wrist_pitch
     model: MG90S
+    gpio_pin: 26
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 95
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
   ch5:
-    joint: wrist_pitch
+    joint: wrist_yaw
     model: SG90
+    gpio_pin: 25
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 60
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
@@ -649,11 +659,13 @@ servos:
   ch6:
     joint: gripper
     model: MG90S
+    gpio_pin: 33
     neutral_angle_deg: 90
-    open_angle_deg: null
-    close_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 45
+    open_angle_deg: 50
+    close_angle_deg: 15
+    min_angle_deg: 10
+    max_angle_deg: 60
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
@@ -685,12 +697,12 @@ Draft schema:
 poses:
   HOME_SAFE:
     description: safe ready pose, gripper open, above board
-    ch1: null
-    ch2: null
-    ch3: null
-    ch4: null
-    ch5: null
-    ch6: null
+    ch1: 90
+    ch2: 130
+    ch3: 130
+    ch4: 95
+    ch5: 60
+    ch6: 45
   READY_ABOVE_BOARD:
     description: robot ready above checkerboard workspace
     ch1: null
@@ -990,14 +1002,16 @@ For early physical control, prefer simple geometric IK:
 ```text
 J1 = atan2(y, x)
 J2-J3 = planar 2-link IK
-J4 = wrist yaw/orientation
-J5 = wrist pitch compensation
+J4 = wrist pitch, calibrated to keep the gripper directed safely
+J5 = wrist yaw/orientation
 ```
 
-J5 pitch compensation concept:
+Wrist compensation calibration note:
 
 ```text
-theta5 approximately = -(theta2 + theta3) + offset
+The old wrist-pitch compensation assumption is not valid for the physical mapping.
+Recalibrate wrist compensation with CH4/J4 as wrist pitch.
+Use CH5/J5 for wrist yaw/orientation.
 ```
 
 Exact sign and offset must be calibrated physically.
@@ -1442,7 +1456,8 @@ HOME after each cycle
 
 - IK returns safe angles.
 - Angles are within configured limits.
-- Wrist pitch compensation keeps gripper directed downward enough for pick.
+- Wrist compensation is recalibrated for physical CH4 wrist pitch.
+- CH5 wrist yaw/orientation remains calibrated separately.
 
 ### Full System Acceptance
 
@@ -1513,7 +1528,8 @@ YOLO best.pt + overhead camera
 Locked corrections:
 
 ```text
-J5 = wrist pitch, gripper up/down
+CH4/J4 = wrist pitch, gripper up/down
+CH5/J5 = wrist yaw / wrist rotate
 J6 = gripper actuator only
 servo horns installed at 90 deg neutral
 home pose = HOME_SAFE, not all zero

@@ -6,17 +6,19 @@
 #   pulse widths in microseconds
 #
 # Naming convention:
-#   J5 = wrist pitch (gripper up/down) ← NOT wrist yaw, NOT wrist roll
+#   J4 = wrist pitch (gripper up/down) from physical calibration
+#   J5 = wrist yaw / wrist rotate from physical calibration
 #   J6 = gripper open-close actuator ← NOT part of DH kinematic chain
 
 servos:
   ch1:
     joint: base_yaw
     model: MG996R
+    gpio_pin: 13
     neutral_angle_deg: 90          # servo horn installed at this angle
-    home_angle_deg: null          # fill after calibration
-    min_angle_deg: null            # fill after calibration
-    max_angle_deg: null            # fill after calibration
+    home_angle_deg: 90
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1                  # 1=normal, -1=reversed. fill after calibration
     offset_deg: 0                 # mechanical offset after horn installation
     pulse_min_us: 600
@@ -25,10 +27,11 @@ servos:
   ch2:
     joint: shoulder_pitch
     model: MG996R
+    gpio_pin: 14
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 130
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
@@ -37,34 +40,37 @@ servos:
   ch3:
     joint: elbow_pitch
     model: MG996R
+    gpio_pin: 27
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 130
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
 
   ch4:
-    joint: wrist_yaw
+    joint: wrist_pitch            # moves gripper up and down
     model: MG90S
+    gpio_pin: 26
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 95
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
 
   ch5:
-    joint: wrist_pitch            # moves gripper up and down
+    joint: wrist_yaw              # wrist rotate
     model: SG90
+    gpio_pin: 25
     neutral_angle_deg: 90
-    home_angle_deg: null
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 60
+    min_angle_deg: 40
+    max_angle_deg: 140
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
@@ -73,11 +79,13 @@ servos:
   ch6:
     joint: gripper
     model: MG90S
+    gpio_pin: 33
     neutral_angle_deg: 90
-    open_angle_deg: null          # fill after calibration
-    close_angle_deg: null         # fill after calibration
-    min_angle_deg: null
-    max_angle_deg: null
+    home_angle_deg: 45
+    open_angle_deg: 50
+    close_angle_deg: 15
+    min_angle_deg: 10
+    max_angle_deg: 60
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
