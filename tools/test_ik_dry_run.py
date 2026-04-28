@@ -91,18 +91,91 @@ def limit_status(angle: float, limits: tuple[float, float]) -> tuple[bool, str]:
     return ok, f"{angle:.2f} deg in [{lo:.1f}, {hi:.1f}]"
 
 
-def solve_planar_ik(robot_x: float, robot_y: float, z: float, kin_cfg: dict[str, Any]) -> dict[str, Any]:
+def resolve_tcp_offset_options(args: argparse.Namespace, kin_cfg: dict[str, Any]) -> tuple[str, float, float]:
+    ik_cfg = kin_cfg.get("ik", {})
+    mode = args.tcp_offset_mode or ik_cfg.get("tcp_offset_mode", "vertical_down")
+    supported = ik_cfg.get("tcp_offset_modes_supported", ["none", "planar", "vertical_down", "mixed"])
+    if mode not in supported:
+        raise ValueError(f"TCP offset mode {mode!r} is not supported by config: {supported}")
+    planar_fraction = (
+        args.tcp_planar_fraction
+        if args.tcp_planar_fraction is not None
+        else float(ik_cfg.get("tcp_planar_fraction", 0.0))
+    )
+    vertical_fraction = (
+        args.tcp_vertical_fraction
+        if args.tcp_vertical_fraction is not None
+        else float(ik_cfg.get("tcp_vertical_fraction", 1.0))
+    )
+    return mode, float(planar_fraction), float(vertical_fraction)
+
+
+def compute_wrist_target(
+    r_tcp: float,
+    z_rel: float,
+    links: dict[str, Any],
+    mode: str,
+    planar_fraction: float,
+    vertical_fraction: float,
+) -> dict[str, float | str]:
+    tcp_offset = float(links["effective_wrist_to_tcp_m"])
+    wrist_axis_offset = float(links["wrist_rotate_to_wrist_pitch_m"])
+
+    if mode == "none":
+        planar_offset = 0.0
+        vertical_offset = 0.0
+    elif mode == "planar":
+        planar_offset = tcp_offset
+        vertical_offset = 0.0
+    elif mode == "vertical_down":
+        planar_offset = wrist_axis_offset * planar_fraction
+        vertical_offset = tcp_offset
+    elif mode == "mixed":
+        planar_offset = tcp_offset * planar_fraction
+        vertical_offset = tcp_offset * vertical_fraction
+    else:
+        raise ValueError(f"Unsupported TCP offset mode: {mode}")
+
+    return {
+        "tcp_offset_mode": mode,
+        "tcp_offset_m": tcp_offset,
+        "wrist_axis_planar_offset_m": wrist_axis_offset,
+        "tcp_planar_fraction": planar_fraction,
+        "tcp_vertical_fraction": vertical_fraction,
+        "applied_planar_offset_m": planar_offset,
+        "applied_vertical_offset_m": vertical_offset,
+        "r_wrist_m": r_tcp - planar_offset,
+        "z_wrist_m": z_rel + vertical_offset,
+    }
+
+
+def solve_planar_ik(
+    robot_x: float,
+    robot_y: float,
+    z: float,
+    kin_cfg: dict[str, Any],
+    tcp_offset_mode: str,
+    tcp_planar_fraction: float,
+    tcp_vertical_fraction: float,
+) -> dict[str, Any]:
     links = kin_cfg["links"]
     shoulder_z = float(links["board_to_shoulder_height_m"])
     l1 = float(links["shoulder_to_elbow_m"])
     l2 = float(links["elbow_to_wrist_rotate_m"])
-    tcp_offset = float(links["effective_wrist_to_tcp_m"])
 
     heading_deg = math.degrees(math.atan2(robot_y, robot_x))
     r_tcp = math.hypot(robot_x, robot_y)
     z_rel = z - shoulder_z
-    r_wrist = r_tcp - tcp_offset
-    z_wrist = z_rel
+    wrist = compute_wrist_target(
+        r_tcp,
+        z_rel,
+        links,
+        tcp_offset_mode,
+        tcp_planar_fraction,
+        tcp_vertical_fraction,
+    )
+    r_wrist = float(wrist["r_wrist_m"])
+    z_wrist = float(wrist["z_wrist_m"])
     reach = math.hypot(r_wrist, z_wrist)
 
     result = {
@@ -115,13 +188,13 @@ def solve_planar_ik(robot_x: float, robot_y: float, z: float, kin_cfg: dict[str,
         "reach_m": reach,
         "l1_m": l1,
         "l2_m": l2,
-        "tcp_offset_m": tcp_offset,
+        **wrist,
         "candidates": [],
     }
 
     if r_wrist < 0:
         result["unreachable_reason"] = (
-            f"target horizontal reach {r_tcp:.4f} m is smaller than effective TCP offset {tcp_offset:.4f} m"
+            f"wrist target horizontal reach is negative ({r_wrist:.4f} m) after {tcp_offset_mode} TCP offset"
         )
         return result
 
@@ -226,6 +299,11 @@ def print_report(
     print(f"  provisional base joint: {ik['base_joint_deg']:.2f} deg")
     print(f"  horizontal TCP r: {ik['r_tcp_m']:.4f} m")
     print(f"  z relative to shoulder: {ik['z_rel_m']:.4f} m")
+    print(f"  TCP offset mode: {ik['tcp_offset_mode']}")
+    print(f"  TCP planar fraction: {ik['tcp_planar_fraction']:.3f}")
+    print(f"  TCP vertical fraction: {ik['tcp_vertical_fraction']:.3f}")
+    print(f"  applied planar TCP offset: {ik['applied_planar_offset_m']:.4f} m")
+    print(f"  applied vertical TCP offset: {ik['applied_vertical_offset_m']:.4f} m")
     print(f"  provisional wrist target r: {ik['r_wrist_m']:.4f} m")
     print(f"  provisional wrist target z: {ik['z_wrist_m']:.4f} m")
     print(f"  planar wrist reach: {ik['reach_m']:.4f} m")
@@ -286,6 +364,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--from-board", action="store_true")
     parser.add_argument("--target-name")
     parser.add_argument("--mode", choices=["hover", "pick", "lift", "place", "custom"], default="custom")
+    parser.add_argument(
+        "--tcp-offset-mode",
+        choices=["none", "planar", "vertical_down", "mixed"],
+        help="Override TCP offset handling; default comes from robot_kinematics.yaml",
+    )
+    parser.add_argument(
+        "--tcp-planar-fraction",
+        type=float,
+        help="Planar TCP offset fraction for mixed mode, or small axis correction in vertical_down",
+    )
+    parser.add_argument(
+        "--tcp-vertical-fraction",
+        type=float,
+        help="Vertical TCP offset fraction for mixed mode",
+    )
     parser.add_argument("--print-home", action="store_true")
     parser.add_argument("--check-only", action="store_true")
     return parser.parse_args()
@@ -320,7 +413,21 @@ def main() -> int:
     if args.check_only:
         print("[INFO] Configs loaded. Performing dry-run math only.")
 
-    ik = solve_planar_ik(robot_x, robot_y, z, kin_cfg)
+    try:
+        tcp_offset_mode, tcp_planar_fraction, tcp_vertical_fraction = resolve_tcp_offset_options(args, kin_cfg)
+    except ValueError as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 2
+
+    ik = solve_planar_ik(
+        robot_x,
+        robot_y,
+        z,
+        kin_cfg,
+        tcp_offset_mode,
+        tcp_planar_fraction,
+        tcp_vertical_fraction,
+    )
     print_report(args, (robot_x, robot_y, z), ik, kin_cfg, servo_cfg, pose_cfg)
     return 0
 

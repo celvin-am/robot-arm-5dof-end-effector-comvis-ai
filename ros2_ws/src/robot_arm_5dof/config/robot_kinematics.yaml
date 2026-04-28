@@ -31,7 +31,15 @@ ik:
   method: planar_geometric_dry_run
   base_axis: z
   shoulder_elbow_plane: vertical
-  tcp_offset_mode: effective_planar_offset
+  tcp_offset_mode: vertical_down
+  tcp_offset_modes_supported:
+    - none
+    - planar
+    - vertical_down
+    - mixed
+  tcp_planar_fraction: 0.0
+  tcp_vertical_fraction: 1.0
+  note: vertical_down is provisional; validate physically before motion
   wrist_yaw_ch4_default: neutral
   wrist_pitch_ch5_compensation_enabled: true
   wrist_pitch_ch5_compensation_note: CH5 is physical wrist pitch; sign and offset must be validated before motion
