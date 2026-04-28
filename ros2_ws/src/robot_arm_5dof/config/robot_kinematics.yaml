@@ -1,37 +1,76 @@
 # Robot kinematics configuration for robot_arm_5dof
 #
-# This file contains:
-#   - Modified DH table (initial baseline, must be validated against physical robot)
-#   - Link lengths (meters)
-#   - Workspace geometry
-#   - IK solver parameters
-#   - J5 wrist pitch compensation
+# Phase 5 status:
+#   Dry-run IK and pose planning only.
+#   No serial, no ESP32, no servo commands, no robot motion.
 #
-# DH Reference (from uas.docx, uncalibrated baseline):
-#   Link | a_i(cm) | alpha_i(deg) | d_i(cm)  | theta_i
-#   -----|---------|--------------|----------|----------------
-#   1    | 0       | 0            | 5        | theta1
-#   2    | 0       | 90           | 5.5      | theta2 + 90°
-#   3    | 12.5    | -180         | 0        | theta3 - 90°
-#   4    | 0       | 90           | 9        | theta4
-#   5    | 0       | -90          | 3        | theta5 - 90°
-#
-# IMPORTANT: These are baseline values. Validate against physical robot before use.
+# Physical joint mapping for this provisional IK dry run:
+#   CH1/J1 = base yaw
+#   CH2/J2 = shoulder pitch
+#   CH3/J3 = elbow pitch
+#   CH4/J4 = wrist yaw / wrist rotate
+#   CH5/J5 = wrist pitch / gripper up-down
+#   CH6    = gripper open-close, not part of IK chain
 
-kinematics:
-  # DH link lengths in meters (from baseline, uncalibrated)
-  link_lengths:
-    d1: 0.050       # base height (shoulder pivot to base rotation axis)
-    d2: 0.055       # shoulder offset (shoulder pivot to elbow pivot)
-    a3: 0.125       # upper arm length (elbow to wrist yaw pivot)
-    d4: 0.090       # forearm length (wrist yaw to wrist pitch pivot)
-    d5: 0.030       # wrist pitch to tool center point (TCP)
+robot:
+  dof: 5
+  units: meter
+  status: provisional_manual_measurement
+  dry_run_only: true
+  note: link lengths, servo directions, wrist compensation, and yaw offset must be physically validated before motion
 
-  # Total arm reach from base to TCP (approximate, compute from links)
-  # total_reach_m: ~0.350  # d1+d2+a3+d4+d5 (verify)
+links:
+  board_to_shoulder_height_m: 0.100
+  shoulder_to_elbow_m: 0.125
+  elbow_to_wrist_rotate_m: 0.090
+  wrist_rotate_to_wrist_pitch_m: 0.030
+  wrist_pitch_to_tcp_m: 0.125
+  effective_wrist_to_tcp_m: 0.155
 
-  # DH table in meters (structured for FK implementation)
-  dh_table:
+ik:
+  method: planar_geometric_dry_run
+  base_axis: z
+  shoulder_elbow_plane: vertical
+  tcp_offset_mode: effective_planar_offset
+  wrist_yaw_ch4_default: neutral
+  wrist_pitch_ch5_compensation_enabled: true
+  wrist_pitch_ch5_compensation_note: CH5 is physical wrist pitch; sign and offset must be validated before motion
+  default_tcp_pitch_down: true
+
+servo_model:
+  ch1_base_yaw:
+    zero_reference_deg: 90
+    direction: 1
+    offset_deg: 0
+  ch2_shoulder_pitch:
+    zero_reference_deg: 130
+    direction: 1
+    offset_deg: 0
+  ch3_elbow_pitch:
+    zero_reference_deg: 130
+    direction: 1
+    offset_deg: 0
+  ch4_wrist_yaw:
+    zero_reference_deg: 95
+    direction: 1
+    offset_deg: 0
+  ch5_wrist_pitch:
+    zero_reference_deg: 60
+    direction: 1
+    offset_deg: 0
+
+safety:
+  reject_if_outside_servo_limits: true
+  reject_if_unreachable: true
+  dry_run_only: true
+  no_serial: true
+  no_hardware_motion: true
+
+dh_modified_baseline:
+  source: uas_docx
+  status: reference_only_not_final
+  note: baseline for FK/documentation; physical link measurements in links section are used for Phase 5 dry-run IK
+  table:
     - link: 1
       a_m: 0.0
       alpha_rad: 0.0
@@ -39,72 +78,54 @@ kinematics:
       theta_offset_deg: 0
     - link: 2
       a_m: 0.0
-      alpha_rad: 1.570796  # 90°
+      alpha_rad: 1.570796
       d_m: 0.055
       theta_offset_deg: 90
     - link: 3
       a_m: 0.125
-      alpha_rad: -3.141593  # -180°
+      alpha_rad: -3.141593
       d_m: 0.0
       theta_offset_deg: -90
     - link: 4
       a_m: 0.0
-      alpha_rad: 1.570796  # 90°
+      alpha_rad: 1.570796
       d_m: 0.090
       theta_offset_deg: 0
     - link: 5
       a_m: 0.0
-      alpha_rad: -1.570796  # -90°
+      alpha_rad: -1.570796
       d_m: 0.030
       theta_offset_deg: -90
 
-  # Geometric IK parameters
-  ik:
-    # Planar 2-link reach computation uses a3 as upper arm, d4 as forearm
-    # Adjust if physical measurement differs
-    planar_upper_arm_m: 0.125    # a3
-    planar_forearm_m: 0.090      # d4
-
-    # J5 wrist pitch compensation
-    # Keeps gripper pointing downward during reach
-    # Formula: theta5 ≈ -(theta2 + theta3) + offset_deg
-    # Sign and offset must be calibrated on physical robot
-    j5_pitch_compensation:
-      enabled: true
-      base_formula: "-(theta2 + theta3)"
-      offset_deg: null           # fill after physical calibration
-      # If base formula doesn't work, try: theta5 ≈ theta2 + theta3 + offset
-
-    # Workspace limits (meters, from base origin)
-    workspace:
-      max_horizontal_m: 0.35      # max radial distance from base center
-      min_z_m: 0.02               # minimum height above board
-      max_z_m: 0.30               # maximum height
-
-  # DH frame axis conventions (for FK visualization)
-  # z axis of each DH frame follows the physical joint rotation axis
-  frame_conventions:
-    frame_0:
-      origin: "base center, base rotation axis"
-      z_axis: "vertical, aligned with J1 yaw axis"
-    frame_1:
-      origin: "shoulder pivot"
-      z_axis: "horizontal, aligned with J2 pitch axis"
-    frame_2:
-      origin: "elbow pivot"
-      z_axis: "horizontal, aligned with J3 pitch axis"
-    frame_3:
-      origin: "wrist yaw pivot"
-      z_axis: "horizontal, aligned with J4 yaw axis"
-    frame_4:
-      origin: "wrist pitch pivot"
-      z_axis: "horizontal, aligned with J5 pitch axis"
-    frame_5:
-      origin: "TCP (tool center point)"
-      z_axis: "normal to gripper fingers"
-
-  # Validation status
-  calibration_status:
-    dh_parameters: uncalibrated   # uncalibrated | partially_calibrated | calibrated
-    last_updated: null
-    notes: "Baseline from uas.docx. Validate all link lengths against physical robot."
+frame_conventions:
+  status: reference_only
+  note: z axis of each DH frame follows the physical joint rotation axis
+  chain:
+    - frame: 0
+      origin: base center
+      joint: CH1/J1 base yaw
+      z_axis: vertical base yaw axis
+    - frame: 1
+      origin: shoulder pitch axis
+      joint: CH2/J2 shoulder pitch
+      z_axis: physical shoulder pitch rotation axis
+    - frame: 2
+      origin: elbow pitch axis
+      joint: CH3/J3 elbow pitch
+      z_axis: physical elbow pitch rotation axis
+    - frame: 3
+      origin: wrist yaw / wrist rotate axis
+      joint: CH4/J4 wrist yaw / wrist rotate
+      z_axis: physical wrist yaw rotation axis
+    - frame: 4
+      origin: wrist pitch / gripper up-down axis
+      joint: CH5/J5 wrist pitch / gripper up-down
+      z_axis: physical wrist pitch rotation axis
+    - frame: 5
+      origin: TCP / tool center point
+      joint: tool frame
+      z_axis: tool frame axis, not a gripper servo axis
+  gripper:
+    channel: CH6
+    role: gripper open-close actuator
+    in_dh_chain: false
