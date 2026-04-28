@@ -1,0 +1,12 @@
+serial:
+  baud_rate: 115200
+  default_port: null
+  require_confirmation_for_home: true
+  allowed_phase6_commands:
+    - PING
+    - STATUS
+    - LIMITS
+    - HOME
+    - STOP
+    - HELP
+  note: Phase 6 allows HOME_SAFE only; no pick/place or IK target motion
