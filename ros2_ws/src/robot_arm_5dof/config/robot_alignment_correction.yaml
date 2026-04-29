@@ -1,0 +1,11 @@
+robot_alignment_correction:
+  status: identity_default
+  method: identity
+  created_at: null
+  samples: []
+  mean_error_before_cm: null
+  correction:
+    translation_dx_cm: 0.0
+    translation_dy_cm: 0.0
+    affine_2x3: null
+  note: no manual alignment correction collected yet; identity correction is used until calibration samples are saved
