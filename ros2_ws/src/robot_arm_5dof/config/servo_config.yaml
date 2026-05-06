@@ -1,81 +1,64 @@
-# Servo configuration for robot_arm_5dof
-# All null values must be filled during physical calibration (Phase 5)
-#
-# Units:
-#   angles in degrees
-#   pulse widths in microseconds
-#
-# Naming convention:
-#   J4 = wrist pitch (gripper up/down) from physical calibration
-#   J5 = wrist yaw / wrist rotate from physical calibration
-#   J6 = gripper open-close actuator ← NOT part of DH kinematic chain
-
 servos:
   ch1:
     joint: base_yaw
     model: MG996R
     gpio_pin: 13
-    neutral_angle_deg: 90          # servo horn installed at this angle
+    neutral_angle_deg: 90
     home_angle_deg: 90
-    min_angle_deg: 40
-    max_angle_deg: 140
-    direction: 1                  # 1=normal, -1=reversed. fill after calibration
-    offset_deg: 0                 # mechanical offset after horn installation
+    min_angle_deg: 20
+    max_angle_deg: 180
+    direction: 1
+    offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
-
   ch2:
     joint: shoulder_pitch
     model: MG996R
     gpio_pin: 14
     neutral_angle_deg: 90
     home_angle_deg: 130
-    min_angle_deg: 40
-    max_angle_deg: 140
+    min_angle_deg: 20
+    max_angle_deg: 180
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
-
   ch3:
     joint: elbow_pitch
     model: MG996R
     gpio_pin: 27
     neutral_angle_deg: 90
     home_angle_deg: 130
-    min_angle_deg: 40
-    max_angle_deg: 140
+    min_angle_deg: 20
+    max_angle_deg: 180
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
-
   ch4:
-    joint: wrist_pitch            # moves gripper up and down
+    joint: wrist_rotate
     model: MG90S
     gpio_pin: 26
     neutral_angle_deg: 90
     home_angle_deg: 95
-    min_angle_deg: 40
-    max_angle_deg: 140
+    min_angle_deg: 20
+    max_angle_deg: 180
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
-
   ch5:
-    joint: wrist_yaw              # wrist rotate
+    joint: wrist_pitch
     model: SG90
     gpio_pin: 25
     neutral_angle_deg: 90
     home_angle_deg: 60
-    min_angle_deg: 40
-    max_angle_deg: 140
+    min_angle_deg: 20
+    max_angle_deg: 180
     direction: 1
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
-
   ch6:
     joint: gripper
     model: MG90S
@@ -90,10 +73,13 @@ servos:
     offset_deg: 0
     pulse_min_us: 600
     pulse_max_us: 2400
-
-# Safety settings
 safety:
   default_pose: HOME_SAFE
-  max_speed_deg_per_sec: 30       # max servo travel speed (software limit)
-  move_smoothing_sec: 0.5         # interpolate movements over this duration
-  serial_timeout_sec: 3.0         # ESP32 watchdog timeout
+  max_speed_deg_per_sec: 30
+  move_smoothing_sec: 0.5
+  serial_timeout_sec: 3.0
+gripper_calibration:
+  open_deg: 50
+  close_soft_deg: 35
+  close_full_deg: 20
+  source: gui_taught_live

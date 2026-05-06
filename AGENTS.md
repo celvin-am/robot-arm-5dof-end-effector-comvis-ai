@@ -17,8 +17,9 @@ Build a 5 DOF robot arm plus gripper for **class-based sorting** of donut and ca
 - YOLO `best.pt` model for donut/cake detection.
 - Checkerboard workspace as coordinate reference.
 - Homography-based pixel-to-board coordinate mapping.
-- Inverse kinematics for 5 DOF arm movement.
-- Gripper open/close as separate actuator, not part of main DH chain.
+- Position IK for the main arm positioning chain: CH1 base yaw, CH2 shoulder pitch, CH3 elbow pitch, and CH5 wrist pitch.
+- CH4 wrist yaw / wrist rotate is treated as an end-effector orientation actuator for basic pick-and-place.
+- Gripper open/close is a separate actuator, not part of the main IK chain.
 - Class-based sorting: all CAKE objects go to CAKE_BOWL (Bowl 1), all DONUT objects go to DONUT_BOWL (Bowl 2).
 
 The project must be developed in small, validated phases. Do not attempt to implement the full autonomous system in one pass.
@@ -107,62 +108,262 @@ Do not design the robot task as four separate object categories unless the human
 
 ### 2.4 Servo Mapping
 
-Final servo mapping, updated from physical ESP32/Arduino calibration evidence:
+Final servo mapping, confirmed from the current ESP32 firmware and current
+project evidence. Treat any reported hardware-motion validation as unconfirmed
+unless a human explicitly reports it in the current session:
 
-| Channel | GPIO | Joint | Servo | Motion | Function |
+| Channel | GPIO | Role | Servo | Motion | Function |
 |---|---:|---|---|---|---|
 | CH1 | 13 | J1 | MG996R | yaw | base rotation |
 | CH2 | 14 | J2 | MG996R | pitch | shoulder up/down |
 | CH3 | 27 | J3 | MG996R | pitch | elbow bend |
-| CH4 | 26 | J4 | MG90S | pitch | wrist pitch, gripper up/down |
-| CH5 | 25 | J5 | SG90 | yaw | wrist yaw / wrist rotate |
-| CH6 | 33 | J6 | MG90S | open-close | gripper |
+| CH4 | 26 | EE_ROTATE | MG90S | yaw / roll | wrist yaw / wrist rotate |
+| CH5 | 25 | J4_POSITION | SG90 | pitch | wrist pitch, gripper up/down |
+| CH6 | 33 | GRIPPER | MG90S | open-close | gripper |
 
 Critical correction:
 
 ```text
-CH4/J4 is wrist pitch. It moves the gripper up and down.
-CH5/J5 is wrist yaw / wrist rotate.
+CH4/GPIO26 is wrist yaw / wrist rotate.
+CH5/GPIO25 is wrist pitch / gripper up-down.
 ```
 
-The standalone ESP32/Arduino sketch is calibration evidence only for channel
-mapping, GPIO mapping, safe limits, HOME_SAFE, and gripper open/close angles.
-Do not import its hardcoded pick/place sequence, timing sequence, fixed target
-positions, final sorting route, or autonomous motion logic.
+For basic Cartesian position IK, the active positioning joints are:
+
+```text
+CH1 base yaw
+CH2 shoulder pitch
+CH3 elbow pitch
+CH5 wrist pitch / gripper up-down
+```
+
+CH4 is an end-effector orientation actuator. It may be held at a calibrated neutral angle during early pick-and-place unless physical testing proves that CH4 significantly changes the TCP position.
+
+CH6 is only the gripper open-close actuator.
+
+The standalone ESP32/Arduino firmware is calibration evidence for channel mapping, GPIO mapping, safe limits, HOME_SAFE, serial protocol, and gripper open/close angles. Do not import any hardcoded pick/place sequence, timing sequence, fixed target positions, final sorting route, or autonomous motion logic from a standalone firmware sketch.
 
 ### 2.5 Kinematic Chain
 
-Main kinematic chain:
+Main positioning chain for position IK:
 
 ```text
-J1 = base yaw
-J2 = shoulder pitch
-J3 = elbow pitch
-J4 = wrist pitch
-J5 = wrist yaw
+J1 = base yaw                         -> CH1 / GPIO13
+J2 = shoulder pitch                   -> CH2 / GPIO14
+J3 = elbow pitch                      -> CH3 / GPIO27
+J4 = wrist pitch / gripper up-down    -> CH5 / GPIO25
+```
+
+End-effector orientation actuator:
+
+```text
+EE_ROTATE = wrist yaw / wrist rotate  -> CH4 / GPIO26
 ```
 
 Gripper actuator:
 
 ```text
-J6 = gripper open-close
+GRIPPER = gripper open-close          -> CH6 / GPIO33
 ```
 
-J6 must not be included in the main DH kinematic chain.
-
-Use:
+For basic pick-and-place position IK, use:
 
 ```text
-T_robot = T1 * T2 * T3 * T4 * T5
+T_position = T1 * T2 * T3 * T4 * T_tcp
 ```
 
-Do not use:
+Where:
 
 ```text
-T_robot = T1 * T2 * T3 * T4 * T5 * T6
+T1    = base yaw
+T2    = shoulder pitch
+T3    = elbow pitch
+T4    = wrist pitch / gripper up-down
+T_tcp = fixed transform from gripper body or wrist assembly to the actual TCP
 ```
 
-J6 is only an actuator command for open/close.
+Do not include CH6 in the kinematic chain.
+
+CH4 may be included in URDF/FK for visualization and end-effector orientation, but it should not be an active position-IK variable during early pick-and-place. Keep CH4 at a calibrated neutral angle unless orientation control is explicitly required.
+
+### 2.5.1 URDF and IKPy Mapping Rule
+
+The current URDF may be used as a visual and IKPy baseline only after its wrist joint is interpreted correctly.
+
+Required mapping for IKPy position solving:
+
+```text
+URDF base_joint -> CH1 / GPIO13 / base yaw
+URDF shoulder   -> CH2 / GPIO14 / shoulder pitch
+URDF elbow      -> CH3 / GPIO27 / elbow pitch
+URDF wrist      -> CH5 / GPIO25 / wrist pitch / gripper up-down
+```
+
+Do not map the URDF `wrist` joint to CH4 unless the URDF joint is physically verified to be wrist rotate. For this project, the position-IK wrist axis must be CH5.
+
+CH4 / GPIO26 / wrist rotate:
+
+```text
+- Not active in basic IKPy position IK.
+- Keep at wrist_rotate_neutral_deg during pick-and-place.
+- May be represented in URDF as an optional end-effector orientation joint.
+- May be used later for gripper orientation if needed.
+```
+
+CH6 / GPIO33 / gripper:
+
+```text
+- Not active in IKPy position IK.
+- Controlled separately as open/close.
+```
+
+IKPy active link mask must activate only the position chain joints and must not activate CH4 or CH6 for basic XYZ solving.
+
+IKPy output must be converted to ESP32 command order:
+
+```text
+[CH1, CH2, CH3, CH4, CH5, CH6]
+```
+
+where:
+
+```text
+CH1 = IK base yaw result
+CH2 = IK shoulder pitch result
+CH3 = IK elbow pitch result
+CH4 = calibrated wrist rotate neutral or requested rotate angle
+CH5 = IK wrist pitch result
+CH6 = gripper open/close angle
+```
+
+Never send raw IKPy radians directly to the ESP32. Convert using servo calibration:
+
+```text
+servo_deg = neutral_angle_deg + direction * rad_to_deg(joint_rad) + offset_deg
+```
+
+Then clamp to the configured safe min/max.
+
+### 2.5.2 TCP Definition
+
+TCP means Tool Center Point. For this project, the TCP should be defined as the effective gripper working point, normally:
+
+```text
+the center point between the two gripper fingers at the grasping area
+```
+
+The URDF must contain a fixed `tcp` link or equivalent terminal tool frame.
+
+Recommended URDF structure:
+
+```text
+gripper_link -> fixed joint -> tcp
+```
+
+The fixed transform from `gripper_link` or wrist assembly to `tcp` must be measured physically. Do not guess it from the mesh origin.
+
+### 2.5.3 Where URDF Dimensions Belong and What They Are For
+
+URDF dimensions have two different roles. Do not mix them carelessly.
+
+1. URDF geometry/origin data:
+
+```text
+- Stored directly in the URDF as <origin xyz="..." rpy="..."> and link/joint definitions.
+- Used by robot_state_publisher, TF, RViz visualization, FK tree display, and IKPy chain loading.
+- Should represent distances between actual joint rotation axes, not casing length or mesh appearance.
+```
+
+2. Calibrated kinematic parameters:
+
+```text
+- Stored separately in config/robot_kinematics.yaml.
+- Used by geometric IK, FK validation, reachability checks, TCP offset, and debugging.
+- Must be measured from the physical robot and may override or validate URDF values.
+```
+
+Suggested file:
+
+```text
+config/robot_kinematics.yaml
+```
+
+Suggested schema:
+
+```yaml
+kinematics:
+  units: meter
+  source: measured_physical_robot
+  base_to_shoulder_m: null
+  shoulder_to_elbow_m: null
+  elbow_to_wrist_pitch_m: null
+  wrist_pitch_to_wrist_rotate_m: null
+  wrist_rotate_to_tcp_m: null
+  wrist_pitch_to_tcp_m: null
+  tcp_frame: tcp
+
+ikpy:
+  urdf_file: arduino_robot_arm.urdf
+  base_link: base
+  target_link: tcp
+  active_joints:
+    - base_joint      # CH1
+    - shoulder        # CH2
+    - elbow           # CH3
+    - wrist           # CH5 wrist pitch
+  inactive_actuators:
+    ch4: wrist_rotate
+    ch6: gripper
+```
+
+Current initial kinematic data, updated from URDF-derived estimates plus user physical measurement:
+
+```yaml
+kinematics_initial:
+  units: meter
+  status: initial_draft_not_final_calibration
+  source:
+    base_to_shoulder_m: urdf_estimate
+    shoulder_to_elbow_m: urdf_estimate
+    elbow_to_wrist_pitch_m: urdf_estimate
+    wrist_pitch_to_wrist_rotate_m: user_physical_measurement
+    wrist_rotate_to_tcp_m: user_physical_measurement
+    wrist_pitch_to_tcp_direct_m: user_physical_measurement
+
+  lengths_m:
+    base_to_shoulder_m: 0.03798
+    shoulder_to_elbow_m: 0.11716
+    elbow_to_wrist_pitch_m: 0.12683
+    wrist_pitch_to_wrist_rotate_m: 0.10
+    wrist_rotate_to_tcp_m: 0.14
+    wrist_pitch_to_tcp_direct_m: 0.12
+
+  initial_position_ik_tool_length_m: 0.12
+  initial_position_ik_tool_length_source: direct straight-line measurement from CH5 wrist pitch axis to TCP
+
+  tcp_reference:
+    tcp_definition: center_between_gripper_fingers
+    gripper_position: closed
+    ch4_wrist_rotate_mode: fixed_neutral_for_initial_ik
+    ch4_neutral_deg: null   # candidate from HOME_SAFE is 95 deg, but still validate visually
+    ch5_reference_deg: null # still must be defined by wrist pitch reference convention
+    ch6_closed_deg: null    # still must be measured for donut/cake grip
+```
+
+For initial position IK, use `wrist_pitch_to_tcp_direct_m = 0.12`. Do not use `0.10 + 0.14` as the planar tool length unless the 3D URDF offsets and directions are modeled explicitly. The 0.10 m and 0.14 m values are useful for URDF/visual decomposition, not for the initial simplified IK tool length.
+
+Function of these dimensions:
+
+```text
+- FK: estimate where the TCP is for given joint angles.
+- IK: compute joint angles needed to reach target X/Y/Z.
+- IKPy: build a correct chain from URDF to tcp.
+- Safety: reject unreachable targets before servo movement.
+- Calibration: compare expected TCP position vs real TCP position.
+- GUI/RViz: show the robot and TCP consistently.
+```
+
+If URDF dimensions and measured physical dimensions disagree, physical measurement wins for control. URDF must then be updated or documented as visual-only.
 
 ### 2.6 Servo Installation Neutral Position
 
@@ -197,12 +398,37 @@ Home pose should follow this concept:
 - Base faces the middle of the checkerboard.
 - Shoulder is slightly raised.
 - Elbow is bent.
-- Wrist yaw is neutral.
-- Wrist pitch points gripper downward safely.
+- CH4 wrist rotate is neutral.
+- CH5 wrist pitch points the gripper downward safely.
 - Gripper is open.
 - TCP/gripper is above the board and does not touch it.
 
 Home must be calibrated on the physical robot and stored as a named pose.
+
+Current HOME_SAFE validation status:
+
+```yaml
+HOME_SAFE:
+  ch1: 90
+  ch2: 130
+  ch3: 130
+  ch4: 95
+  ch5: 60
+  ch6: 45
+  status: validated_for_idle_and_manual_testing
+  validated_checks:
+    no_mechanical_collision: true
+    no_servo_hard_buzzing: true
+    gripper_clear_of_board: true
+    cable_not_tensioned: true
+    repeatable_after_power_cycle: true
+  not_yet_validated_for:
+    - HOME_TO_HOVER_PICK_PATH
+    - HOME_TO_DROP_ZONE_PATH
+    - autonomous_pick_and_place
+```
+
+Do not treat HOME_SAFE as proof that all autonomous paths are safe. HOME_SAFE is currently valid for idle, manual testing, and calibration start pose only.
 
 ---
 
@@ -523,13 +749,35 @@ Important content:
 - Gripper servo not included in main kinematic analysis.
 - Modified DH baseline.
 
+### 3.7 `arduino_robot_arm.urdf`
+
+Use as a visual/IKPy baseline, not as a final truth source until validated.
+
+Current repository note:
+
+- No active URDF/Xacro is present in the repo right now.
+- TCP is config-defined only for now.
+- If a robot description is added later, it must add a fixed `tcp` link under
+  the CH5 wrist-pitch chain and keep CH4 inactive for initial position IK.
+
+Current treatment rules:
+
+- The URDF can represent the position chain if its `wrist` joint is confirmed as CH5 wrist pitch.
+- CH4 wrist rotate may be absent from the simplified IK chain and can be held neutral.
+- CH6 gripper open-close may be absent from the IK chain and controlled separately.
+- A fixed `tcp` frame must be added before using the URDF for final IKPy targets.
+- Joint origins and axes must be validated against physical servo rotation axes.
+- Link dimensions from URDF must be compared with physical measurements and stored in `config/robot_kinematics.yaml`.
+
 ---
 
-## 4. Modified DH Baseline
+## 4. Modified DH / URDF Kinematic Baseline
 
-The project uses Modified DH as the documentation and FK baseline.
+The project may use Modified DH, geometric IK, and/or IKPy/URDF. All of them must describe the same physical robot, otherwise the math is worthless.
 
-Initial DH table from project document:
+### 4.1 Modified DH Baseline
+
+Initial DH table from the project document:
 
 | Link | a_i (cm) | alpha_i (deg) | d_i (cm) | theta_i |
 |---:|---:|---:|---:|---|
@@ -554,6 +802,8 @@ Important:
 - These are initial baseline values.
 - They must be validated against the physical robot.
 - Use distances between servo rotation axes, not casing or bracket length.
+- For position IK, the effective wrist pitch axis is CH5, not CH4.
+- CH4 wrist rotate is an end-effector orientation actuator unless later testing proves it must affect TCP position.
 
 DH diagram rule:
 
@@ -562,6 +812,82 @@ z axis of each DH frame follows the physical joint rotation axis.
 ```
 
 Do not draw all z axes vertically.
+
+### 4.2 URDF Dimension Rule
+
+URDF dimensions belong in the URDF when they describe TF/joint/link geometry:
+
+```text
+<link>
+<joint origin xyz="..." rpy="...">
+<axis xyz="...">
+```
+
+These values are used for:
+
+```text
+robot_state_publisher
+TF tree
+RViz visualization
+IKPy chain parsing
+FK from URDF
+TCP display
+```
+
+However, calibrated physical lengths must also be stored in:
+
+```text
+config/robot_kinematics.yaml
+```
+
+This config is used for:
+
+```text
+geometric IK
+FK validation
+reachability checks
+TCP offset compensation
+comparing URDF model vs real robot
+```
+
+Required physical measurements:
+
+```text
+base yaw axis -> shoulder pitch axis
+shoulder pitch axis -> elbow pitch axis
+elbow pitch axis -> wrist pitch axis / CH5
+wrist pitch axis / CH5 -> wrist rotate axis / CH4
+wrist rotate axis / CH4 -> TCP
+or simplified: wrist pitch axis / CH5 -> TCP
+```
+
+If URDF and physical measurement disagree:
+
+```text
+physical measurement wins for control
+URDF must be updated or marked visual-only
+```
+
+### 4.3 TCP Offset Rule
+
+The TCP must be defined at the effective gripper working point.
+
+For a two-finger gripper:
+
+```text
+TCP = center point between the two gripper fingers at the grasping area
+```
+
+Do not place TCP at:
+
+```text
+- servo center
+- mesh origin
+- arbitrary gripper body origin
+- one finger tip only
+```
+
+For IKPy, the target link should be `tcp`, not just `gripper`.
 
 ---
 
@@ -606,8 +932,8 @@ servos:
     max_angle_deg: 140
     direction: 1
     offset_deg: 0
-    pulse_min_us: 600
-    pulse_max_us: 2400
+    pulse_min_us: 500
+    pulse_max_us: 2500
   ch2:
     joint: shoulder_pitch
     model: MG996R
@@ -618,8 +944,8 @@ servos:
     max_angle_deg: 140
     direction: 1
     offset_deg: 0
-    pulse_min_us: 600
-    pulse_max_us: 2400
+    pulse_min_us: 500
+    pulse_max_us: 2500
   ch3:
     joint: elbow_pitch
     model: MG996R
@@ -630,10 +956,10 @@ servos:
     max_angle_deg: 140
     direction: 1
     offset_deg: 0
-    pulse_min_us: 600
-    pulse_max_us: 2400
+    pulse_min_us: 500
+    pulse_max_us: 2500
   ch4:
-    joint: wrist_pitch
+    joint: wrist_rotate
     model: MG90S
     gpio_pin: 26
     neutral_angle_deg: 90
@@ -642,10 +968,12 @@ servos:
     max_angle_deg: 140
     direction: 1
     offset_deg: 0
-    pulse_min_us: 600
-    pulse_max_us: 2400
+    role: end_effector_orientation
+    use_in_position_ik: false
+    pulse_min_us: 500
+    pulse_max_us: 2500
   ch5:
-    joint: wrist_yaw
+    joint: wrist_pitch
     model: SG90
     gpio_pin: 25
     neutral_angle_deg: 90
@@ -654,8 +982,10 @@ servos:
     max_angle_deg: 140
     direction: 1
     offset_deg: 0
-    pulse_min_us: 600
-    pulse_max_us: 2400
+    role: position_ik
+    use_in_position_ik: true
+    pulse_min_us: 500
+    pulse_max_us: 2500
   ch6:
     joint: gripper
     model: MG90S
@@ -668,8 +998,8 @@ servos:
     max_angle_deg: 60
     direction: 1
     offset_deg: 0
-    pulse_min_us: 600
-    pulse_max_us: 2400
+    pulse_min_us: 500
+    pulse_max_us: 2500
 ```
 
 ### 5.2 Pose Calibration
@@ -696,13 +1026,18 @@ Draft schema:
 ```yaml
 poses:
   HOME_SAFE:
-    description: safe ready pose, gripper open, above board
+    description: safe ready pose, gripper above board
     ch1: 90
     ch2: 130
     ch3: 130
     ch4: 95
     ch5: 60
     ch6: 45
+    status: validated_for_idle_and_manual_testing
+    not_yet_validated_for:
+      - HOME_TO_HOVER_PICK_PATH
+      - HOME_TO_DROP_ZONE_PATH
+      - autonomous_pick_and_place
   READY_ABOVE_BOARD:
     description: robot ready above checkerboard workspace
     ch1: null
@@ -714,6 +1049,24 @@ poses:
 ```
 
 Do not guess these values. They must be measured on the physical robot.
+
+Pose finding rule:
+
+```text
+1. Start from validated HOME_SAFE.
+2. Move one or two servo channels at a time using small increments.
+3. Keep CH4 wrist rotate at neutral during position calibration.
+4. Keep gripper open when searching hover and pick approach poses.
+5. Save only poses that have been manually tested without collision, cable tension, or servo hard buzzing.
+```
+
+Manual pose milestones required before autonomous movement:
+
+```text
+HOME_SAFE -> READY_ABOVE_BOARD -> HOVER_PICK_TEST -> PICK_TEST -> LIFT_TEST -> HOVER_DROP_TEST -> PLACE_TEST -> LIFT_CLEAR -> HOME_SAFE
+```
+
+These named poses are not a replacement for IK. They are calibration and validation anchors used to verify IK, Z heights, and safe path segments.
 
 ### 5.3 Camera Calibration
 
@@ -991,30 +1344,32 @@ HOME_RETURN
 
 Responsibilities:
 
-- Solve IK for J1-J5.
-- Apply limits.
-- Output joint/servo targets.
-- Use geometric IK initially if simpler and safer.
-- DH/FK can be used for visualization and validation.
+- Solve position IK for CH1, CH2, CH3, and CH5.
+- Treat CH4 wrist rotate as an end-effector orientation actuator.
+- Treat CH6 gripper as open-close only.
+- Apply limits, direction, neutral angle, and offset from servo calibration.
+- Output servo targets in ESP32 channel order: CH1, CH2, CH3, CH4, CH5, CH6.
+- Use geometric IK or IKPy initially for position-only targets.
+- Use DH/FK/URDF for visualization, TCP validation, and debugging.
 
-For early physical control, prefer simple geometric IK:
+For early physical control, prefer position-only IK:
 
 ```text
-J1 = atan2(y, x)
-J2-J3 = planar 2-link IK
-J4 = wrist pitch, calibrated to keep the gripper directed safely
-J5 = wrist yaw/orientation
+CH1 = atan2(y, x) base yaw
+CH2-CH3 = planar shoulder/elbow IK
+CH5 = wrist pitch compensation to keep the gripper directed safely
+CH4 = calibrated wrist rotate neutral
+CH6 = gripper open/close
 ```
 
 Wrist compensation calibration note:
 
 ```text
-The old wrist-pitch compensation assumption is not valid for the physical mapping.
-Recalibrate wrist compensation with CH4/J4 as wrist pitch.
-Use CH5/J5 for wrist yaw/orientation.
+CH5/GPIO25 is the wrist pitch axis that moves the gripper up/down.
+CH4/GPIO26 is wrist yaw / wrist rotate and should not be used as the wrist pitch axis.
 ```
 
-Exact sign and offset must be calibrated physically.
+Exact sign, neutral angle, offset, and direction must be calibrated physically.
 
 ### 6.6 `esp32_serial_bridge_node`
 
@@ -1026,26 +1381,49 @@ Responsibilities:
 - Parse ESP32 response.
 - Publish ESP32 status.
 
-Suggested serial command:
+Current ESP32 firmware serial command format:
 
 ```text
-S,90,75,110,80,90,40\n
+MOVE_SAFE 90 130 130 95 60 45\n
 ```
 
 Meaning:
 
 ```text
-CH1=90, CH2=75, CH3=110, CH4=80, CH5=90, CH6=40
+CH1=90, CH2=130, CH3=130, CH4=95, CH5=60, CH6=45
 ```
 
-Suggested responses:
+Supported commands in the current firmware:
 
 ```text
-OK
-ERR
-BUSY
-DONE
+PING
+STATUS
+HOME
+MOVE_SAFE a1 a2 a3 a4 a5 a6
+STOP
+LIMITS
+HELP
 ```
+
+Expected response patterns:
+
+```text
+READY ESP32_ROBOT_ARM_SERIAL
+PONG
+STATUS READY/BUSY CH1=... CH2=... CH3=... CH4=... CH5=... CH6=...
+LIMITS CH1=40..140 CH2=40..140 CH3=40..140 CH4=40..140 CH5=40..140 CH6=10..60
+ACK HOME
+DONE HOME
+ACK MOVE_SAFE
+DONE MOVE_SAFE
+ACK STOP
+DONE STOP
+ERR BUSY ...
+ERR MALFORMED MOVE_SAFE
+ERR UNKNOWN ...
+```
+
+Do not switch to an `S,...` serial protocol unless the ESP32 firmware is intentionally changed and documented.
 
 ### 6.7 `viz_env_node`
 
@@ -1195,6 +1573,7 @@ pose_config.yaml
 camera_config.yaml
 board_config.yaml
 robot_board_transform.yaml
+robot_kinematics.yaml
 pick_place_config.yaml
 ```
 
@@ -1325,7 +1704,7 @@ Create:
 
 ```text
 board_mapper_node.py
-tools/test_homography.py
+tools/calibrate_board_homography.py
 config/board_config.yaml
 ```
 
@@ -1456,8 +1835,11 @@ HOME after each cycle
 
 - IK returns safe angles.
 - Angles are within configured limits.
-- Wrist compensation is recalibrated for physical CH4 wrist pitch.
-- CH5 wrist yaw/orientation remains calibrated separately.
+- Position IK controls CH1, CH2, CH3, and CH5.
+- CH5 wrist pitch compensation is calibrated to keep the gripper directed safely.
+- CH4 wrist rotate is calibrated separately as an end-effector orientation actuator.
+- CH6 gripper open-close is calibrated separately.
+- FK/URDF validation confirms that TCP reaches the expected target region.
 
 ### Full System Acceptance
 
@@ -1490,20 +1872,51 @@ HOME after each cycle
 
 ## 13. Current Open Issues
 
-These must be measured or decided physically:
+These must be measured, validated, or decided physically:
+
+Known initial data:
+
+```yaml
+HOME_SAFE:
+  angles_deg: [90, 130, 130, 95, 60, 45]
+  status: validated_for_idle_and_manual_testing
+
+kinematics_initial_m:
+  base_to_shoulder: 0.03798
+  shoulder_to_elbow: 0.11716
+  elbow_to_wrist_pitch: 0.12683
+  wrist_pitch_to_wrist_rotate: 0.10
+  wrist_rotate_to_tcp: 0.14
+  wrist_pitch_to_tcp_direct: 0.12
+
+initial_ik_policy:
+  active_position_ik_channels: [CH1, CH2, CH3, CH5]
+  fixed_for_position_ik: [CH4]
+  gripper_only: CH6
+```
+
+Still open / must be measured:
 
 ```text
-exact CH1-CH6 home angles
-exact CH1-CH6 min/max angles
+exact CH1-CH6 min/max safe angles after physical range testing
 servo direction normal/reverse per channel
-actual link lengths between rotation axes
+CH4 wrist rotate neutral angle, candidate 95 deg from HOME_SAFE but still validate
+CH5 wrist pitch reference angle and reference meaning
+CH6 open angle and closed angle per object class
+final physical validation of URDF joint origins and axes against physical servo axes
+final validation of link lengths against physical rotation axes
+HOME_TO_HOVER_PICK path safety
+HOME_TO_DROP_ZONE path safety
 actual robot base location relative to checkerboard
 actual robot yaw offset relative to board
-valid pick height Z_pick
+valid pick height Z_pick_donut
+valid pick height Z_pick_cake
 safe hover height Z_hover
+lift height Z_lift
+place height Z_place
+clear height Z_clear
 drop zone donut location
 drop zone cake location
-gripper open and close angles
 ```
 
 ---
@@ -1520,7 +1933,8 @@ The final system is:
 YOLO best.pt + overhead camera
 -> checkerboard homography
 -> board-to-robot transform
--> IK J1-J5
+-> position IK using CH1, CH2, CH3, CH5
+-> CH4 wrist rotate neutral/optional orientation
 -> ESP32 serial CH1-CH6
 -> pick-and-place donut/cake
 ```
@@ -1528,9 +1942,12 @@ YOLO best.pt + overhead camera
 Locked corrections:
 
 ```text
-CH4/J4 = wrist pitch, gripper up/down
-CH5/J5 = wrist yaw / wrist rotate
-J6 = gripper actuator only
+CH4/GPIO26 = wrist yaw / wrist rotate
+CH5/GPIO25 = wrist pitch / gripper up-down
+CH6/GPIO33 = gripper actuator only
+Position IK uses CH1, CH2, CH3, and CH5
+CH4 is treated as an end-effector orientation actuator for basic pick-and-place
+TCP must be defined at the gripper working point, usually the center between the gripper fingers
 servo horns installed at 90 deg neutral
 home pose = HOME_SAFE, not all zero
 PCA9685 code = reference only, not final hardware bridge

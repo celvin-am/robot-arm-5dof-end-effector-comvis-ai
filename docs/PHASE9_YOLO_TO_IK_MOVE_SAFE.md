@@ -1,5 +1,10 @@
 # Phase 9 YOLO to IK MOVE_SAFE
 
+> [SAFETY]
+> Treat this phase as software-only validation unless a human explicitly confirms
+> physical robot motion in the current session. Live command examples below are
+> for a later manual hardware phase only.
+
 Phase 9 is a single-target hover test that bridges the existing YOLO board
 mapping pipeline into the guarded IK-to-`MOVE_SAFE` path.
 
@@ -28,13 +33,15 @@ Not allowed:
 ## Current Hover Settings
 
 - `solution = elbow_up`
-- `tcp_offset_mode = none`
+- `tcp_offset_mode = none` (temporary manual-validation default only)
 - `z hover default = 0.12`
 - `CH6 = HOME_SAFE gripper angle = 45`
 
 ## Safety Rules
 
 - no serial command is sent unless `--send` is used
+- live motion requires `--home-first`
+- live motion requires `--yes-i-understand-hardware-risk`
 - `--dry-run` prints the intended `MOVE_SAFE` command only
 - `HOME` requires typing `HOME`
 - `MOVE_SAFE` requires typing `MOVE`
@@ -53,5 +60,5 @@ Dry run:
 Later live test, not run during validation:
 
 ```bash
-/home/andra/envs/robot_yolo_env/bin/python tools/test_yolo_to_ik_move_safe.py --send --port /dev/ttyUSB0 --show --home-first --return-home
+/home/andra/envs/robot_yolo_env/bin/python tools/test_yolo_to_ik_move_safe.py --send --home-first --yes-i-understand-hardware-risk --port /dev/ttyUSB0 --show --tcp-offset-mode none --return-home
 ```

@@ -1,5 +1,10 @@
 # Phase 7 Manual Move Testing
 
+> [SAFETY]
+> Treat this phase as software-only validation unless a human explicitly confirms
+> physical robot motion in the current session. Live command examples below are
+> for a later manual hardware phase only.
+
 Phase 7 extends the safe serial path with guarded manual servo movement.
 
 ## Scope
@@ -31,6 +36,7 @@ Still not allowed:
 - Python test tool requires explicit confirmation:
   - `Type HOME to send HOME.`
   - `Type MOVE to send MOVE_SAFE.`
+- live motion also requires `--yes-i-understand-hardware-risk`
 - `--dry-run` never opens the serial port.
 
 ## Safe Limits

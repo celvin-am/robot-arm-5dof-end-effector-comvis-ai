@@ -1,0 +1,208 @@
+metadata:
+  status: phase12_manual_teach_template
+  created_at: null
+  updated_at: '2026-05-06T18:12:28.170621Z'
+  step_deg: 2
+  note: Manual taught MOVE_SAFE poses for practical pick-place testing. No IK in this
+    file.
+poses:
+  OBJECT_HOVER:
+    description: Manual taught hover pose above object before pick.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+  OBJECT_PICK:
+    description: Manual taught object contact pose.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+  OBJECT_LIFT:
+    description: Manual taught lift pose after grasp.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+  CAKE_BOWL_HOVER:
+    description: Manual taught hover pose above CAKE bowl.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+  CAKE_BOWL_PLACE:
+    description: Manual taught place pose inside CAKE bowl.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+  DONUT_BOWL_HOVER:
+    description: Manual taught hover pose above DONUT bowl.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+  DONUT_BOWL_PLACE:
+    description: Manual taught place pose inside DONUT bowl.
+    ch1: null
+    ch2: null
+    ch3: null
+    ch4: null
+    ch5: null
+    ch6: null
+  HOME_SAFE:
+    description: Human-taught HOME_SAFE reference.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T15:42:27.763231Z'
+    ch1: 78
+    ch2: 130
+    ch3: 140
+    ch4: 95
+    ch5: 50
+    ch6: 40
+  READY_ABOVE_BOARD:
+    description: Human-taught ready pose above checkerboard.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T16:29:24.881431Z'
+    ch1: 78
+    ch2: 125
+    ch3: 135
+    ch4: 95
+    ch5: 75
+    ch6: 40
+  HOVER_PICK_TEST:
+    description: Human-taught hover pose above object before pick.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T16:51:07.135495Z'
+    ch1: 80
+    ch2: 73
+    ch3: 135
+    ch4: 95
+    ch5: 45
+    ch6: 40
+  PICK_TEST:
+    description: Human-taught object contact pose.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T18:05:50.512519Z'
+    ch1: 80
+    ch2: 68
+    ch3: 135
+    ch4: 86
+    ch5: 45
+    ch6: 50
+  LIFT_TEST:
+    description: Human-taught lift pose after pick.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T18:06:51.531369Z'
+    ch1: 78
+    ch2: 115
+    ch3: 120
+    ch4: 86
+    ch5: 45
+    ch6: 20
+  HOVER_DROP_TEST:
+    description: Human-taught hover pose above generic drop zone.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T17:39:37.751270Z'
+    ch1: 130
+    ch2: 115
+    ch3: 140
+    ch4: 86
+    ch5: 30
+    ch6: 20
+  PLACE_TEST:
+    description: Human-taught generic place pose.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T17:41:23.464001Z'
+    ch1: 130
+    ch2: 115
+    ch3: 140
+    ch4: 86
+    ch5: 30
+    ch6: 40
+  CLEAR_TEST:
+    description: Human-taught clear / retreat pose.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T18:07:55.964488Z'
+    ch1: 78
+    ch2: 130
+    ch3: 125
+    ch4: 95
+    ch5: 50
+    ch6: 20
+  CAKE_DROP_HOVER:
+    description: Human-taught CAKE drop hover pose.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T18:09:06.750578Z'
+    ch1: 130
+    ch2: 115
+    ch3: 140
+    ch4: 86
+    ch5: 30
+    ch6: 20
+  CAKE_DROP_PLACE:
+    description: Human-taught CAKE drop place pose.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T18:11:51.508339Z'
+    ch1: 130
+    ch2: 115
+    ch3: 140
+    ch4: 86
+    ch5: 30
+    ch6: 20
+  DONUT_DROP_HOVER:
+    description: Human-taught DONUT drop hover pose.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T17:48:19.354600Z'
+    ch1: 110
+    ch2: 60
+    ch3: 95
+    ch4: 86
+    ch5: 30
+    ch6: 20
+  DONUT_DROP_PLACE:
+    description: Human-taught DONUT drop place pose.
+    status: human_taught_live
+    validated_for: manual_testing_only
+    autonomous_validated: false
+    taught_at: '2026-05-06T18:12:28.170562Z'
+    ch1: 110
+    ch2: 60
+    ch3: 95
+    ch4: 86
+    ch5: 30
+    ch6: 20

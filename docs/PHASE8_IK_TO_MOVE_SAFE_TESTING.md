@@ -1,5 +1,10 @@
 # Phase 8 IK to MOVE_SAFE Testing
 
+> [SAFETY]
+> Treat this phase as software-only validation unless a human explicitly confirms
+> physical robot motion in the current session. Live command examples below are
+> for a later manual hardware phase only.
+
 Phase 8 bridges the dry-run IK result into a guarded `MOVE_SAFE` serial command.
 
 ## Scope
@@ -29,11 +34,13 @@ First dry-run selected target:
 - `board_y = 9.0`
 - `z = 0.12`
 - `solution = elbow_up`
-- `tcp_offset_mode = none`
+- `tcp_offset_mode = none` (temporary manual-validation default only)
 
 ## Safety Rules
 
 - no serial command is sent unless `--send` is used
+- live motion requires `--home-first`
+- live motion requires `--yes-i-understand-hardware-risk`
 - `--dry-run` prints the intended `MOVE_SAFE` command only
 - `HOME` requires typing `HOME`
 - `MOVE_SAFE` requires typing `MOVE`
@@ -52,5 +59,5 @@ First dry-run selected target:
 Not run during validation:
 
 ```bash
-/home/andra/envs/robot_yolo_env/bin/python tools/test_ik_to_move_safe.py --send --port /dev/ttyUSB0 --board-x 7.0 --board-y 9.0 --z 0.12 --home-first --return-home
+/home/andra/envs/robot_yolo_env/bin/python tools/test_ik_to_move_safe.py --send --home-first --yes-i-understand-hardware-risk --port /dev/ttyUSB0 --board-x 7.0 --board-y 9.0 --z 0.12 --tcp-offset-mode none --return-home
 ```

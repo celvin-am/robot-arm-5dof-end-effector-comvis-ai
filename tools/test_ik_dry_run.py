@@ -118,8 +118,8 @@ def compute_wrist_target(
     planar_fraction: float,
     vertical_fraction: float,
 ) -> dict[str, float | str]:
-    tcp_offset = float(links["effective_wrist_to_tcp_m"])
-    wrist_axis_offset = float(links["wrist_rotate_to_wrist_pitch_m"])
+    tcp_offset = float(links["wrist_pitch_to_tcp_direct_m"])
+    wrist_axis_offset = float(links.get("wrist_pitch_to_wrist_rotate_m", 0.0))
 
     if mode == "none":
         planar_offset = 0.0
@@ -159,9 +159,9 @@ def solve_planar_ik(
     tcp_vertical_fraction: float,
 ) -> dict[str, Any]:
     links = kin_cfg["links"]
-    shoulder_z = float(links["board_to_shoulder_height_m"])
+    shoulder_z = float(links["base_to_shoulder_m"])
     l1 = float(links["shoulder_to_elbow_m"])
-    l2 = float(links["elbow_to_wrist_rotate_m"])
+    l2 = float(links["elbow_to_wrist_pitch_m"])
 
     heading_deg = math.degrees(math.atan2(robot_y, robot_x))
     r_tcp = math.hypot(robot_x, robot_y)
@@ -224,7 +224,7 @@ def solve_planar_ik(
                 "j1_base_yaw_deg": result["base_joint_deg"],
                 "j2_shoulder_pitch_deg": shoulder_deg,
                 "j3_elbow_pitch_deg": elbow_deg,
-                "j4_wrist_yaw_deg": 0.0,
+                "j4_wrist_rotate_deg": 0.0,
                 "j5_wrist_pitch_deg": wrist_pitch_deg,
             }
         )
@@ -238,7 +238,7 @@ def candidate_servos(candidate: dict[str, float], kin_cfg: dict[str, Any]) -> di
         "ch1": servo_value(candidate["j1_base_yaw_deg"], model["ch1_base_yaw"]),
         "ch2": servo_value(candidate["j2_shoulder_pitch_deg"], model["ch2_shoulder_pitch"]),
         "ch3": servo_value(candidate["j3_elbow_pitch_deg"], model["ch3_elbow_pitch"]),
-        "ch4": servo_value(candidate["j4_wrist_yaw_deg"], model["ch4_wrist_yaw"]),
+        "ch4": servo_value(candidate["j4_wrist_rotate_deg"], model["ch4_wrist_rotate"]),
         "ch5": servo_value(candidate["j5_wrist_pitch_deg"], model["ch5_wrist_pitch"]),
     }
 
@@ -256,7 +256,7 @@ def validate_servos(servos: dict[str, float], servo_cfg: dict[str, Any]) -> tupl
 
 def print_home_pose(pose_cfg: dict[str, Any]) -> None:
     home = pose_cfg.get("poses", {}).get("HOME_SAFE", {})
-    print("\nHOME_SAFE (unchanged reference):")
+    print("\n[CONFIG] HOME_SAFE (unchanged reference):")
     for ch in ("ch1", "ch2", "ch3", "ch4", "ch5", "ch6"):
         print(f"  {ch}: {home.get(ch)}")
 
@@ -274,7 +274,7 @@ def print_report(
     gripper = servo_cfg.get("servos", {}).get("ch6", {})
 
     print("\n============================================================")
-    print("DRY RUN ONLY - no serial, no ESP32, no ROS2, no hardware motion")
+    print("[IK] DRY RUN ONLY - no serial, no ESP32, no ROS2, no hardware motion")
     print("============================================================")
     if args.target_name:
         print(f"target_name: {args.target_name}")
@@ -283,18 +283,18 @@ def print_report(
     if args.from_board:
         print(f"source board coordinate: x={args.board_x:.2f} cm, y={args.board_y:.2f} cm")
 
-    print("\nLink lengths:")
+    print("\n[CONFIG] Link lengths:")
     for key in (
-        "board_to_shoulder_height_m",
+        "base_to_shoulder_m",
         "shoulder_to_elbow_m",
-        "elbow_to_wrist_rotate_m",
-        "wrist_rotate_to_wrist_pitch_m",
-        "wrist_pitch_to_tcp_m",
-        "effective_wrist_to_tcp_m",
+        "elbow_to_wrist_pitch_m",
+        "wrist_pitch_to_wrist_rotate_m",
+        "wrist_rotate_to_tcp_m",
+        "wrist_pitch_to_tcp_direct_m",
     ):
         print(f"  {key}: {links[key]:.4f} m")
 
-    print("\nReach geometry:")
+    print("\n[IK] Reach geometry:")
     print(f"  base heading atan2(y,x): {ik['base_heading_deg']:.2f} deg")
     print(f"  provisional base joint: {ik['base_joint_deg']:.2f} deg")
     print(f"  horizontal TCP r: {ik['r_tcp_m']:.4f} m")
@@ -308,7 +308,7 @@ def print_report(
     print(f"  provisional wrist target z: {ik['z_wrist_m']:.4f} m")
     print(f"  planar wrist reach: {ik['reach_m']:.4f} m")
 
-    print("\nCH6 gripper reference (not part of IK):")
+    print("\n[SERVO] CH6 gripper reference (not part of IK):")
     print(f"  open_angle_deg: {gripper.get('open_angle_deg')}")
     print(f"  close_angle_deg: {gripper.get('close_angle_deg')}")
 
@@ -316,12 +316,12 @@ def print_report(
         print_home_pose(pose_cfg)
 
     if "unreachable_reason" in ik:
-        print("\nREACHABLE: NO")
-        print(f"reason: {ik['unreachable_reason']}")
+        print("\n[IK] REACHABLE: NO")
+        print(f"[IK] reason: {ik['unreachable_reason']}")
         print("No servo candidate generated.")
         return
 
-    print("\nREACHABLE: YES")
+    print("\n[IK] REACHABLE: YES")
     for candidate in ik["candidates"]:
         print(f"\nCandidate: {candidate['name']}")
         print("  Raw joint angles:")
@@ -329,7 +329,7 @@ def print_report(
             "j1_base_yaw_deg",
             "j2_shoulder_pitch_deg",
             "j3_elbow_pitch_deg",
-            "j4_wrist_yaw_deg",
+            "j4_wrist_rotate_deg",
             "j5_wrist_pitch_deg",
         ):
             print(f"    {key}: {candidate[key]:.2f} deg")
@@ -338,12 +338,12 @@ def print_report(
         print("  Candidate servo angles CH1-CH5:")
         for ch in ("ch1", "ch2", "ch3", "ch4", "ch5"):
             print(f"    {ch}: {servos[ch]:.2f} deg")
-        print(f"  Servo limit check: {'PASS' if ok else 'FAIL'}")
+        print(f"  [SAFETY] Servo limit check: {'PASS' if ok else 'FAIL'}")
         for line in limit_lines:
             print(f"    {line}")
 
-    print("\nNotes:")
-    print("  CH4 wrist yaw remains neutral/home for this first dry run.")
+    print("\n[IK] Notes:")
+    print("  CH4 wrist rotate remains neutral/home for this first dry run.")
     print("  CH5 wrist pitch compensation is provisional only; sign/offset must be validated.")
     print("  No command was sent to hardware.")
 
@@ -394,29 +394,29 @@ def main() -> int:
 
     if args.from_board:
         if args.board_x is None or args.board_y is None:
-            print("[ERROR] --from-board requires --board-x and --board-y", file=sys.stderr)
+            print("[CONFIG][ERROR] --from-board requires --board-x and --board-y", file=sys.stderr)
             return 2
         transform_cfg = load_required(args.transform_config, "transform config")
         robot_x, robot_y = board_to_robot(args.board_x, args.board_y, transform_cfg)
     else:
         if args.robot_x is None or args.robot_y is None:
-            print("[ERROR] --robot-x and --robot-y are required unless --from-board is used", file=sys.stderr)
+            print("[CONFIG][ERROR] --robot-x and --robot-y are required unless --from-board is used", file=sys.stderr)
             return 2
         robot_x, robot_y = args.robot_x, args.robot_y
 
     try:
         z = mode_z_height(args.mode, args.z, pick_place_cfg)
     except ValueError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[CONFIG][ERROR] {exc}", file=sys.stderr)
         return 2
 
     if args.check_only:
-        print("[INFO] Configs loaded. Performing dry-run math only.")
+        print("[CONFIG] Configs loaded. Performing dry-run math only.")
 
     try:
         tcp_offset_mode, tcp_planar_fraction, tcp_vertical_fraction = resolve_tcp_offset_options(args, kin_cfg)
     except ValueError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[IK][ERROR] {exc}", file=sys.stderr)
         return 2
 
     ik = solve_planar_ik(

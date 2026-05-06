@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--limits", action="store_true")
     parser.add_argument("--home", action="store_true")
+    parser.add_argument("--yes-i-understand-hardware-risk", action="store_true")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--dry-run", action="store_true", help="Print intended command without opening the port")
     return parser.parse_args()
@@ -97,6 +98,10 @@ def print_dry_run(port: str, baud: int, actions: Iterable[str]) -> None:
         print(f"DRY RUN: port={port} baud={baud} command={command}")
 
 
+def require_live_home_risk_ack(args: argparse.Namespace) -> bool:
+    return args.home and not args.dry_run
+
+
 def open_serial(port: str, baud: int, timeout: float):
     serial, _ = load_serial_modules()
     return serial.Serial(port=port, baudrate=baud, timeout=timeout, write_timeout=timeout)
@@ -154,7 +159,19 @@ def main() -> int:
         print("[ERROR] --port is required unless --list-ports is used", file=sys.stderr)
         return 2
 
+    if require_live_home_risk_ack(args) and not args.yes_i_understand_hardware_risk:
+        print(
+            "[SAFETY][ERROR] Live HOME motion requires --yes-i-understand-hardware-risk.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.home:
+        print("[SAFETY] HOME_SAFE is validated for idle/manual testing only.")
+        print("[SAFETY] Command preview: HOME")
+
     if args.home and not args.dry_run:
+        print("[SAFETY] Live hardware HOME requested.")
         if not require_home_confirmation():
             print("HOME command cancelled.")
             return 0
@@ -166,7 +183,7 @@ def main() -> int:
     try:
         ser = open_serial(args.port, args.baud, args.timeout)
     except Exception as exc:  # pragma: no cover - hardware-dependent path
-        print(f"[ERROR] Failed to open serial port {args.port}: {exc}", file=sys.stderr)
+        print(f"[SERIAL][ERROR] Failed to open serial port {args.port}: {exc}", file=sys.stderr)
         return 2
 
     try:
@@ -174,7 +191,7 @@ def main() -> int:
             lines = send_command(ser, command)
             print_response(command, lines)
             if command == "PING" and "PONG" not in lines:
-                print("[ERROR] Expected PONG response", file=sys.stderr)
+                print("[SERIAL][ERROR] Expected PONG response", file=sys.stderr)
                 return 2
     finally:
         ser.close()

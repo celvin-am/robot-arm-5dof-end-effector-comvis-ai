@@ -236,10 +236,13 @@ class HomographyMapper:
 
 class ServoCommandBuilder:
     """
-    Builds and validates ESP32 serial servo commands.
+    Builds and validates guarded ESP32 serial servo commands.
 
-    Command format: S,ch1,ch2,ch3,ch4,ch5,ch6\\n
-    All angles in degrees (0-180).
+    [SERIAL] Current motion command format:
+        MOVE_SAFE ch1 ch2 ch3 ch4 ch5 ch6\\n
+
+    [SAFETY] Angles are validated and clamped against configured limits before
+    formatting the command string.
     """
 
     def __init__(self, servo_config: Dict[str, Any]):
@@ -282,14 +285,14 @@ class ServoCommandBuilder:
         Steps:
         1. Validate raw angles are within [0, 180]
         2. Clamp to configured min/max per channel
-        3. Build "S,ch1,ch2,...,ch6\\n" string
+        3. Build "MOVE_SAFE ch1 ch2 ... ch6\\n" string
 
         Returns command string ready to send over serial.
         """
         self.validate(angles_deg)
         clamped = self.clamp_all(angles_deg)
-        return f"S,{clamped[0]:.1f},{clamped[1]:.1f},{clamped[2]:.1f}," \
-               f"{clamped[3]:.1f},{clamped[4]:.1f},{clamped[5]:.1f}\n"
+        rounded = [int(round(angle)) for angle in clamped]
+        return "MOVE_SAFE " + " ".join(str(angle) for angle in rounded) + "\n"
 
 
 # -----------------------------------------------------------------------------

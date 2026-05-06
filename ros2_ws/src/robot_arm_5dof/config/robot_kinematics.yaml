@@ -14,21 +14,29 @@
 
 robot:
   dof: 5
+  positioning_dof: 4
   units: meter
   status: provisional_manual_measurement
   dry_run_only: true
-  note: link lengths, servo directions, wrist compensation, and yaw offset must be physically validated before motion
+  note: link lengths, servo directions, wrist compensation, TCP offset, and yaw offset must be physically validated before motion
 
 links:
-  board_to_shoulder_height_m: 0.100
-  shoulder_to_elbow_m: 0.125
-  elbow_to_wrist_rotate_m: 0.090
-  wrist_rotate_to_wrist_pitch_m: 0.030
-  wrist_pitch_to_tcp_m: 0.125
-  effective_wrist_to_tcp_m: 0.155
+  base_to_shoulder_m: 0.03798
+  shoulder_to_elbow_m: 0.11716
+  elbow_to_wrist_pitch_m: 0.12683
+  wrist_pitch_to_wrist_rotate_m: 0.10
+  wrist_rotate_to_tcp_m: 0.14
+  wrist_pitch_to_tcp_direct_m: 0.12
 
 ik:
   method: planar_geometric_dry_run
+  active_position_channels:
+    - ch1
+    - ch2
+    - ch3
+    - ch5
+  inactive_orientation_channels:
+    - ch4
   base_axis: z
   shoulder_elbow_plane: vertical
   tcp_offset_mode: vertical_down
@@ -39,8 +47,9 @@ ik:
     - mixed
   tcp_planar_fraction: 0.0
   tcp_vertical_fraction: 1.0
-  note: vertical_down is provisional; validate physically before motion
-  wrist_yaw_ch4_default: neutral
+  note: initial position IK uses CH5 wrist pitch plus wrist_pitch_to_tcp_direct_m; CH4 stays fixed at neutral for early manual validation
+  wrist_rotate_ch4_default_deg: 95
+  wrist_rotate_ch4_in_position_ik: false
   wrist_pitch_ch5_compensation_enabled: true
   wrist_pitch_ch5_compensation_note: CH5 is physical wrist pitch; sign and offset must be validated before motion
   default_tcp_pitch_down: true
@@ -61,7 +70,7 @@ servo_model:
     zero_reference_deg: 130
     direction: 1
     offset_deg: 0
-  ch4_wrist_yaw:
+  ch4_wrist_rotate:
     zero_reference_deg: 95
     direction: 1
     offset_deg: 0
@@ -76,6 +85,20 @@ safety:
   dry_run_only: true
   no_serial: true
   no_hardware_motion: true
+  home_safe_servo_order_deg: [90, 130, 130, 95, 60, 45]
+  home_safe_path_validation:
+    idle_and_manual_testing: true
+    home_to_hover_pick_path: null
+    home_to_drop_zone_path: null
+    autonomous_pick_place: null
+
+tcp:
+  frame_name: tcp
+  status: config_placeholder_until_urdf_exists
+  parent_joint: ch5_wrist_pitch
+  tool_offset_source: wrist_pitch_to_tcp_direct_m
+  tool_offset_m: 0.12
+  note: TODO add a fixed tcp link in URDF or IKPy model if a robot description file is introduced
 
 dh_modified_baseline:
   source: uas_docx

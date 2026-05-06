@@ -1,5 +1,10 @@
 # Phase 6 Serial Testing
 
+> [SAFETY]
+> Treat this phase as software-only validation unless a human explicitly confirms
+> physical robot motion in the current session. Live command examples below are
+> for a later manual hardware phase only.
+
 Phase 6 is limited to a safe serial communication path between the laptop and
 ESP32. This phase allows only `HOME_SAFE` and simple diagnostics.
 
@@ -25,7 +30,7 @@ Not allowed in this phase:
 
 ## Physical Channel Mapping Used in Phase 6
 
-This phase follows the latest physical mapping provided for the tested robot:
+This phase follows the current project mapping used for software validation:
 
 - `CH1 GPIO13` = base yaw
 - `CH2 GPIO14` = shoulder pitch

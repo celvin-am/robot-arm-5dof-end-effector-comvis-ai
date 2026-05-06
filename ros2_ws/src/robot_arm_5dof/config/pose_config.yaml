@@ -17,6 +17,11 @@
 poses:
   HOME_SAFE:
     description: Safe semi-folded ready pose. Gripper open, above board.
+    validation_status:
+      idle_and_manual_testing: true
+      home_to_hover_pick_path: null
+      home_to_drop_zone_path: null
+      autonomous_pick_place: null
     ch1: 90
     ch2: 130
     ch3: 130

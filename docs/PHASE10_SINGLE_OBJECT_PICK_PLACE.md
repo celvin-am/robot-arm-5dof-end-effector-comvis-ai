@@ -1,5 +1,10 @@
 # Phase 10 Single-Object Pick-Place
 
+> [SAFETY]
+> Treat this phase as software-only validation unless a human explicitly confirms
+> physical robot motion in the current session. Live command examples below are
+> for a later manual hardware phase only.
+
 Phase 10 is a guarded single-object pick-place test built on the existing YOLO,
 board-mapping, IK dry-run, and `MOVE_SAFE` serial path.
 
@@ -37,6 +42,7 @@ Not allowed:
 ## Safety Rules
 
 - default behavior is dry-run unless `--send` is passed
+- live motion requires `--yes-i-understand-hardware-risk`
 - `--send` requires typing `START`
 - `--confirm-each-step` requires `ENTER` before every `MOVE_SAFE`
 - each pose must pass IK and servo-limit validation before the sequence starts
@@ -54,5 +60,5 @@ Dry run:
 Later guarded live test, not run during validation:
 
 ```bash
-/home/andra/envs/robot_yolo_env/bin/python tools/test_single_object_pick_place.py --send --port /dev/ttyUSB0 --target-group ANY --confirm-each-step
+/home/andra/envs/robot_yolo_env/bin/python tools/test_single_object_pick_place.py --send --yes-i-understand-hardware-risk --port /dev/ttyUSB0 --target-group ANY --confirm-each-step --tcp-offset-mode none
 ```

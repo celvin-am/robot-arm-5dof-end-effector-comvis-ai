@@ -35,6 +35,7 @@ from test_ik_dry_run import (
 from test_ik_to_move_safe import (
     DEFAULT_SERIAL_CONFIG,
     build_move_command,
+    clamp_move_safe_angles,
     require_line,
     rounded_move_safe_angles,
     select_candidate,
@@ -71,6 +72,14 @@ TARGET_SETS = {
     ],
 }
 
+SINGLE_TARGETS = {
+    "left_mid": ("left_mid", 7.0, 9.0),
+    "center": ("center", 13.5, 9.0),
+    "right_mid": ("right_mid", 20.0, 9.0),
+    "cake_bowl": ("cake_bowl", 7.0, 6.0),
+    "donut_bowl": ("donut_bowl", 20.0, 6.0),
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -82,7 +91,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--z", type=float, default=DEFAULT_Z)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--send", action="store_true")
+    parser.add_argument("--yes-i-understand-hardware-risk", action="store_true")
     parser.add_argument("--target-set", choices=["basic", "bowls", "all"], default="basic")
+    parser.add_argument("--single-target", choices=list(SINGLE_TARGETS.keys()))
+    parser.add_argument("--skip-on-no-click", action="store_true")
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
@@ -120,6 +132,7 @@ def compute_hover_step(
     if home_gripper is None:
         raise ValueError("HOME_SAFE ch6 is required in pose_config.yaml")
     move_angles = rounded_move_safe_angles(servos, int(home_gripper))
+    move_angles, clamp_notes = clamp_move_safe_angles(move_angles, servo_cfg)
     rounded_failures = validate_move_safe_angles(move_angles, servo_cfg)
     failures = []
     if not limit_ok:
@@ -137,6 +150,7 @@ def compute_hover_step(
         "z_m": z_m,
         "solution": candidate["name"],
         "move_angles": move_angles,
+        "clamp_notes": clamp_notes,
         "command": build_move_command(move_angles),
     }
 
@@ -151,7 +165,15 @@ class ClickCollector:
             self.point = (x, y)
 
 
-def capture_manual_click(cap, H: np.ndarray, target_name: str, show: bool, timeout: float) -> tuple[tuple[int, int], tuple[float, float]]:
+def capture_manual_click(
+    cap,
+    H: np.ndarray,
+    target_name: str,
+    show: bool,
+    timeout: float,
+    board_width_cm: float,
+    board_height_cm: float,
+) -> tuple[tuple[int, int], tuple[float, float]]:
     collector = ClickCollector()
     if show:
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
@@ -166,6 +188,15 @@ def capture_manual_click(cap, H: np.ndarray, target_name: str, show: bool, timeo
             continue
         last_frame = frame.copy()
         cv2.putText(frame, f"Click actual TCP center for {target_name}", (10, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        cv2.putText(
+            frame,
+            "Only click the actual TCP/gripper center. If gripper is not visible, reject/skip this sample.",
+            (10, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 200, 255),
+            2,
+        )
         if collector.point is not None:
             cv2.circle(frame, collector.point, 6, (0, 255, 255), -1)
             cv2.circle(frame, collector.point, 6, (255, 255, 255), 1)
@@ -176,9 +207,29 @@ def capture_manual_click(cap, H: np.ndarray, target_name: str, show: bool, timeo
                 raise KeyboardInterrupt
         if collector.point is not None:
             board_x_cm, board_y_cm = pixel_to_board(H, float(collector.point[0]), float(collector.point[1]))
+            if not (0.0 <= board_x_cm <= board_width_cm and 0.0 <= board_y_cm <= board_height_cm):
+                print(
+                    f"[WARN] Rejected click for {target_name}: board coordinate "
+                    f"({board_x_cm:.2f}, {board_y_cm:.2f}) cm is outside [0,{board_width_cm:g}] x [0,{board_height_cm:g}]"
+                )
+                collector.point = None
+                continue
             return collector.point, (board_x_cm, board_y_cm)
 
     raise TimeoutError(f"No manual click received for {target_name} before timeout")
+
+
+def confirm_sample_acceptance(target_name: str, board_point: tuple[float, float], error_x_cm: float, error_y_cm: float) -> bool:
+    print(
+        f"[REVIEW] {target_name}: actual=({board_point[0]:.2f}, {board_point[1]:.2f}) cm "
+        f"error=({error_x_cm:.2f}, {error_y_cm:.2f}) cm"
+    )
+    print("Type ACCEPT to keep this sample, or REJECT to retry/skip.")
+    try:
+        typed = input("> ").strip().upper()
+    except EOFError:
+        return False
+    return typed == "ACCEPT"
 
 
 def fit_translation(samples: list[dict[str, Any]]) -> dict[str, Any]:
@@ -230,17 +281,36 @@ def save_yaml(path: str, payload: dict[str, Any]) -> None:
         yaml.safe_dump(payload, f, sort_keys=False)
 
 
+def confirm_overwrite(path: str) -> bool:
+    out = Path(path)
+    if not out.exists():
+        return True
+    print(f"Existing correction file found: {path}")
+    print("Type OVERWRITE to replace it, or anything else to cancel save.")
+    try:
+        typed = input("> ").strip()
+    except EOFError:
+        return False
+    return typed == "OVERWRITE"
+
+
 def main() -> int:
     args = parse_args()
 
     if args.dry_run and args.send:
-        print("[ERROR] Use either --dry-run or --send, not both", file=sys.stderr)
+        print("[SAFETY][ERROR] Use either --dry-run or --send, not both", file=sys.stderr)
         return 2
     if args.send and args.port is None:
-        print("[ERROR] --port is required when --send is used", file=sys.stderr)
+        print("[SERIAL][ERROR] --port is required when --send is used", file=sys.stderr)
+        return 2
+    if args.send and not args.yes_i_understand_hardware_risk:
+        print(
+            "[SAFETY][ERROR] Live calibration motion requires --yes-i-understand-hardware-risk.",
+            file=sys.stderr,
+        )
         return 2
 
-    _, H, H_path, _, _ = load_board_and_homography(args.board_config, None)
+    _, H, H_path, board_width_cm, board_height_cm = load_board_and_homography(args.board_config, None)
     print(f"[BOARD] Using homography: {H_path}")
 
     transform_cfg = load_required(args.transform_config, "transform config")
@@ -250,7 +320,10 @@ def main() -> int:
     serial_cfg = load_required(args.serial_config, "serial config")
     _ = serial_cfg
 
-    targets = TARGET_SETS[args.target_set]
+    if args.single_target:
+        targets = [SINGLE_TARGETS[args.single_target]]
+    else:
+        targets = TARGET_SETS[args.target_set]
     try:
         steps = [
             compute_hover_step(name, board_x, board_y, args.z, kin_cfg, servo_cfg, pose_cfg, transform_cfg)
@@ -266,15 +339,21 @@ def main() -> int:
             f"  {step['target_name']}: board=({step['board_x_cm']:.2f},{step['board_y_cm']:.2f}) "
             f"robot=({step['robot_x_m']:.4f},{step['robot_y_m']:.4f}) z={step['z_m']:.2f} {step['command']}"
         )
+        for note in step.get("clamp_notes", []):
+            print(f"    [SAFETY] {note}")
+    print("Only click the actual TCP/gripper center. If gripper is not visible, reject/skip this sample.")
 
     if args.dry_run or not args.send:
         print("\nMode: DRY RUN")
         return 0
 
+    print("\n[SAFETY] Live alignment calibration requested.")
+    print("[SAFETY] Calibration motion proceeds one target at a time only.")
+
     try:
         ser = open_serial(args.port, args.baud, args.timeout)
     except Exception as exc:  # pragma: no cover - hardware-dependent path
-        print(f"[ERROR] Failed to open serial port {args.port}: {exc}", file=sys.stderr)
+        print(f"[SERIAL][ERROR] Failed to open serial port {args.port}: {exc}", file=sys.stderr)
         return 2
 
     cap = cv2.VideoCapture(args.cam)
@@ -288,6 +367,7 @@ def main() -> int:
     samples = []
     try:
         for step in steps:
+            print(f"[SAFETY] Command preview for {step['target_name']}: {step['command']}")
             if not require_confirmation("MOVE", f"Type MOVE to move to calibration target {step['target_name']}."):
                 print("Calibration cancelled.")
                 return 0
@@ -298,30 +378,54 @@ def main() -> int:
             require_line(lines, "ACK MOVE_SAFE", step["target_name"])
             require_line(lines, "DONE MOVE_SAFE", step["target_name"])
 
-            pixel_point, board_point = capture_manual_click(cap, H, step["target_name"], args.show, args.timeout)
-            error_x_cm = float(step["board_x_cm"] - board_point[0])
-            error_y_cm = float(step["board_y_cm"] - board_point[1])
-            sample = {
-                "target_name": step["target_name"],
-                "target_board_x_cm": float(step["board_x_cm"]),
-                "target_board_y_cm": float(step["board_y_cm"]),
-                "actual_tcp_board_x_cm": float(board_point[0]),
-                "actual_tcp_board_y_cm": float(board_point[1]),
-                "error_x_cm": error_x_cm,
-                "error_y_cm": error_y_cm,
-                "clicked_pixel_u": int(pixel_point[0]),
-                "clicked_pixel_v": int(pixel_point[1]),
-            }
-            samples.append(sample)
-            print(
-                f"[SAMPLE] {step['target_name']} actual=({board_point[0]:.2f},{board_point[1]:.2f}) "
-                f"error=({error_x_cm:.2f},{error_y_cm:.2f}) cm"
-            )
+            while True:
+                try:
+                    pixel_point, board_point = capture_manual_click(
+                        cap,
+                        H,
+                        step["target_name"],
+                        args.show,
+                        args.timeout,
+                        board_width_cm,
+                        board_height_cm,
+                    )
+                except TimeoutError:
+                    if args.skip_on_no_click:
+                        print(f"[INFO] No valid click for {step['target_name']}; skipping sample.")
+                        break
+                    raise
+
+                error_x_cm = float(step["board_x_cm"] - board_point[0])
+                error_y_cm = float(step["board_y_cm"] - board_point[1])
+                accepted = confirm_sample_acceptance(step["target_name"], board_point, error_x_cm, error_y_cm)
+                if accepted:
+                    sample = {
+                        "target_name": step["target_name"],
+                        "target_board_x_cm": float(step["board_x_cm"]),
+                        "target_board_y_cm": float(step["board_y_cm"]),
+                        "actual_tcp_board_x_cm": float(board_point[0]),
+                        "actual_tcp_board_y_cm": float(board_point[1]),
+                        "error_x_cm": error_x_cm,
+                        "error_y_cm": error_y_cm,
+                        "clicked_pixel_u": int(pixel_point[0]),
+                        "clicked_pixel_v": int(pixel_point[1]),
+                    }
+                    samples.append(sample)
+                    print(
+                        f"[SAMPLE] {step['target_name']} actual=({board_point[0]:.2f},{board_point[1]:.2f}) "
+                        f"error=({error_x_cm:.2f},{error_y_cm:.2f}) cm"
+                    )
+                    break
+
+                if args.skip_on_no_click:
+                    print(f"[INFO] Sample rejected for {step['target_name']}; skipping target.")
+                    break
+                print(f"[INFO] Sample rejected for {step['target_name']}; retrying click.")
     except (KeyboardInterrupt, TimeoutError) as exc:
         print(f"\n[INFO] Calibration stopped: {exc}")
         return 0
     except RuntimeError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[SERIAL][ERROR] {exc}", file=sys.stderr)
         return 2
     finally:
         cap.release()
@@ -330,8 +434,8 @@ def main() -> int:
             cv2.destroyAllWindows()
 
     if not samples:
-        print("[ERROR] No samples collected; nothing to save.", file=sys.stderr)
-        return 2
+        print("[WARN] No valid samples collected; correction file was not written.")
+        return 0
 
     if len(samples) >= 3:
         correction = fit_affine(samples)
@@ -356,6 +460,9 @@ def main() -> int:
             "note": "correction is valid only while camera, board, and robot base do not move",
         }
     }
+    if not confirm_overwrite(args.output):
+        print("[INFO] Save cancelled; correction file was not written.")
+        return 0
     save_yaml(args.output, payload)
     print(f"[INFO] Saved correction to {args.output}")
     return 0

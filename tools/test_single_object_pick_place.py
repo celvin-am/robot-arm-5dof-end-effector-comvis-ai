@@ -32,6 +32,7 @@ from test_ik_dry_run import (
 from test_ik_to_move_safe import (
     DEFAULT_SERIAL_CONFIG,
     build_move_command,
+    clamp_move_safe_angles,
     require_line,
     rounded_move_safe_angles,
     select_candidate,
@@ -99,6 +100,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--send", action="store_true")
     parser.add_argument("--confirm-each-step", action="store_true")
+    parser.add_argument("--yes-i-understand-hardware-risk", action="store_true")
     parser.add_argument("--timeout", type=float, default=DEFAULT_SERIAL_TIMEOUT)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--width", type=int, default=DEFAULT_WIDTH)
@@ -248,6 +250,7 @@ def compute_move_step(
     servos = candidate_servos(candidate, kin_cfg)
     limit_ok, limit_lines = validate_servos(servos, servo_cfg)
     move_angles = rounded_move_safe_angles(servos, gripper_angle)
+    move_angles, clamp_notes = clamp_move_safe_angles(move_angles, servo_cfg)
     rounded_failures = validate_move_safe_angles(move_angles, servo_cfg)
     failures = []
     if not limit_ok:
@@ -265,6 +268,7 @@ def compute_move_step(
         "z_m": z_m,
         "solution": candidate["name"],
         "move_angles": move_angles,
+        "clamp_notes": clamp_notes,
         "command": build_move_command(move_angles),
     }
 
@@ -290,6 +294,8 @@ def print_sequence(steps: list[dict[str, Any]]) -> None:
                 f"robot=({step['robot_x_m']:.4f},{step['robot_y_m']:.4f}) z={step['z_m']:.2f} "
                 f"{step['command']}"
             )
+            for note in step.get("clamp_notes", []):
+                print(f"       [SAFETY] {note}")
 
 
 def send_sequence(ser, steps: list[dict[str, Any]], confirm_each_step: bool) -> None:
@@ -319,10 +325,16 @@ def main() -> int:
     args.conf = max(0.0, min(1.0, args.conf))
 
     if args.dry_run and args.send:
-        print("[ERROR] Use either --dry-run or --send, not both", file=sys.stderr)
+        print("[SAFETY][ERROR] Use either --dry-run or --send, not both", file=sys.stderr)
         return 2
     if args.send and args.port is None:
-        print("[ERROR] --port is required when --send is used", file=sys.stderr)
+        print("[SERIAL][ERROR] --port is required when --send is used", file=sys.stderr)
+        return 2
+    if args.send and not args.yes_i_understand_hardware_risk:
+        print(
+            "[SAFETY][ERROR] Live single-object pick-place requires --yes-i-understand-hardware-risk.",
+            file=sys.stderr,
+        )
         return 2
 
     kin_cfg = load_required(args.kinematics_config, "kinematics config")
@@ -335,14 +347,14 @@ def main() -> int:
 
     supported_modes = kin_cfg.get("ik", {}).get("tcp_offset_modes_supported", ["none", "planar", "vertical_down", "mixed"])
     if args.tcp_offset_mode not in supported_modes:
-        print(f"[ERROR] Unsupported tcp offset mode {args.tcp_offset_mode!r}. Supported: {supported_modes}", file=sys.stderr)
+        print(f"[CONFIG][ERROR] Unsupported tcp offset mode {args.tcp_offset_mode!r}. Supported: {supported_modes}", file=sys.stderr)
         return 2
 
     if args.roi:
         try:
             args.roi = parse_roi(args.roi)
         except ValueError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
+            print(f"[CONFIG][ERROR] {exc}", file=sys.stderr)
             return 2
 
     home = pose_cfg.get("poses", {}).get("HOME_SAFE", {})
@@ -360,7 +372,7 @@ def main() -> int:
 
     cap = cv2.VideoCapture(args.cam)
     if not cap.isOpened():
-        print(f"[ERROR] Cannot open camera index {args.cam}", file=sys.stderr)
+        print(f"[VISION][ERROR] Cannot open camera index {args.cam}", file=sys.stderr)
         return 2
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
@@ -379,7 +391,7 @@ def main() -> int:
         cap.release()
         if args.show:
             cv2.destroyAllWindows()
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[VISION][ERROR] {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         cap.release()
@@ -397,13 +409,13 @@ def main() -> int:
                 cap.release()
                 if args.show:
                     cv2.destroyAllWindows()
-                print("[ERROR] Target changed or was lost before start. Aborting.", file=sys.stderr)
+                print("[SAFETY][ERROR] Target changed or was lost before start. Aborting.", file=sys.stderr)
                 return 2
         except Exception:
             cap.release()
             if args.show:
                 cv2.destroyAllWindows()
-            print("[ERROR] Target lost before start. Aborting.", file=sys.stderr)
+            print("[SAFETY][ERROR] Target lost before start. Aborting.", file=sys.stderr)
             return 2
 
     cap.release()
@@ -411,13 +423,13 @@ def main() -> int:
         cv2.destroyAllWindows()
 
     if not (0.0 <= float(target["board_x_cm"]) <= width_cm and 0.0 <= float(target["board_y_cm"]) <= height_cm):
-        print("[ERROR] Target is outside board limits. Aborting.", file=sys.stderr)
+        print("[SAFETY][ERROR] Target is outside board limits. Aborting.", file=sys.stderr)
         return 2
 
     try:
         drop_label, drop_board_x, drop_board_y = resolve_drop_zone(str(target["group"]), pick_place_cfg)
     except ValueError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[CONFIG][ERROR] {exc}", file=sys.stderr)
         return 2
 
     print_detection_report(target, drop_label, drop_board_x, drop_board_y)
@@ -435,7 +447,7 @@ def main() -> int:
             {"type": "HOME", "name": "HOME end"},
         ]
     except ValueError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[SAFETY][ERROR] {exc}", file=sys.stderr)
         return 2
 
     print_sequence(steps)
@@ -444,6 +456,10 @@ def main() -> int:
         print("\nMode: DRY RUN")
         return 0
 
+    print("\n[SAFETY] Live single-object pick-place requested.")
+    print("[SAFETY] All previous results in this repo should be treated as software-only unless separately human-confirmed.")
+    print("[SAFETY] HOME_SAFE is only validated for idle/manual testing, not autonomous path safety.")
+
     if not require_exact("START", "Type START to begin single-object pick-place."):
         print("Pick-place sequence cancelled.")
         return 0
@@ -451,13 +467,13 @@ def main() -> int:
     try:
         ser = open_serial(args.port, args.baud, args.timeout)
     except Exception as exc:  # pragma: no cover - hardware-dependent path
-        print(f"[ERROR] Failed to open serial port {args.port}: {exc}", file=sys.stderr)
+        print(f"[SERIAL][ERROR] Failed to open serial port {args.port}: {exc}", file=sys.stderr)
         return 2
 
     try:
         send_sequence(ser, steps, args.confirm_each_step)
     except RuntimeError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[SERIAL][ERROR] {exc}", file=sys.stderr)
         return 2
     finally:
         ser.close()

@@ -31,6 +31,7 @@ from test_ik_dry_run import (
 from test_ik_to_move_safe import (
     DEFAULT_SERIAL_CONFIG,
     build_move_command,
+    clamp_move_safe_angles,
     require_line,
     rounded_move_safe_angles,
     select_candidate,
@@ -101,6 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--send", action="store_true")
     parser.add_argument("--home-first", action="store_true")
     parser.add_argument("--return-home", action="store_true")
+    parser.add_argument("--yes-i-understand-hardware-risk", action="store_true")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--roi", type=str)
     parser.add_argument("--board-config", default=DEFAULT_BOARD_CONFIG)
@@ -164,6 +166,7 @@ def print_ik_report(
     servos: dict[str, float],
     move_angles: list[int],
     failures: list[str],
+    clamp_notes: list[str],
 ) -> None:
     print("\nIK hover result:")
     print(f"  z: {args.z:.4f} m")
@@ -175,11 +178,15 @@ def print_ik_report(
         print(f"    {ch}: {servos[ch]:.2f}")
     print("  final MOVE_SAFE angles CH1-CH6:")
     print("    " + " ".join(f"CH{index + 1}={value}" for index, value in enumerate(move_angles)))
-    print(f"  servo limit: {'PASS' if not failures else 'FAIL'}")
+    print(f"  [SAFETY] servo limit: {'PASS' if not failures else 'FAIL'}")
     if failures:
         for failure in failures:
             print(f"    {failure}")
-    print("  intended command:")
+    if clamp_notes:
+        print("  [SAFETY] clamp notes:")
+        for note in clamp_notes:
+            print(f"    {note}")
+    print("  [SERIAL] intended command:")
     print(f"    {build_move_command(move_angles)}")
 
 
@@ -188,10 +195,23 @@ def main() -> int:
     args.conf = max(0.0, min(1.0, args.conf))
 
     if args.dry_run and args.send:
-        print("[ERROR] Use either --dry-run or --send, not both", file=sys.stderr)
+        print("[SAFETY][ERROR] Use either --dry-run or --send, not both", file=sys.stderr)
         return 2
     if args.send and args.port is None:
-        print("[ERROR] --port is required when --send is used", file=sys.stderr)
+        print("[SERIAL][ERROR] --port is required when --send is used", file=sys.stderr)
+        return 2
+    missing_live_requirements = []
+    if args.send and not args.home_first:
+        missing_live_requirements.append("--home-first")
+    if args.send and not args.yes_i_understand_hardware_risk:
+        missing_live_requirements.append("--yes-i-understand-hardware-risk")
+    if missing_live_requirements:
+        print(
+            "[SAFETY][ERROR] Live YOLO IK motion requires "
+            + ", ".join(missing_live_requirements)
+            + ".",
+            file=sys.stderr,
+        )
         return 2
 
     kin_cfg = load_required(args.kinematics_config, "kinematics config")
@@ -206,14 +226,14 @@ def main() -> int:
 
     supported_modes = kin_cfg.get("ik", {}).get("tcp_offset_modes_supported", ["none", "planar", "vertical_down", "mixed"])
     if args.tcp_offset_mode not in supported_modes:
-        print(f"[ERROR] Unsupported tcp offset mode {args.tcp_offset_mode!r}. Supported: {supported_modes}", file=sys.stderr)
+        print(f"[CONFIG][ERROR] Unsupported tcp offset mode {args.tcp_offset_mode!r}. Supported: {supported_modes}", file=sys.stderr)
         return 2
 
     if args.roi:
         try:
             args.roi = parse_roi(args.roi)
         except ValueError as exc:
-            print(f"[ERROR] {exc}", file=sys.stderr)
+            print(f"[CONFIG][ERROR] {exc}", file=sys.stderr)
             return 2
 
     device = resolve_device(args.device)
@@ -222,7 +242,7 @@ def main() -> int:
 
     cap = cv2.VideoCapture(args.cam)
     if not cap.isOpened():
-        print(f"[ERROR] Cannot open camera index {args.cam}", file=sys.stderr)
+        print(f"[VISION][ERROR] Cannot open camera index {args.cam}", file=sys.stderr)
         return 2
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
@@ -294,13 +314,13 @@ def main() -> int:
 
     ik_result = solve_planar_ik(robot_x, robot_y, args.z, kin_cfg, args.tcp_offset_mode, 0.0, 1.0)
     if "unreachable_reason" in ik_result:
-        print("[ERROR] IK unreachable:", ik_result["unreachable_reason"], file=sys.stderr)
+        print("[IK][ERROR] IK unreachable:", ik_result["unreachable_reason"], file=sys.stderr)
         return 2
 
     try:
         candidate = select_candidate(ik_result, args.solution)
     except ValueError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[IK][ERROR] {exc}", file=sys.stderr)
         return 2
 
     servos = candidate_servos(candidate, kin_cfg)
@@ -309,31 +329,36 @@ def main() -> int:
     home = pose_cfg.get("poses", {}).get("HOME_SAFE", {})
     home_gripper = home.get("ch6")
     if home_gripper is None:
-        print("[ERROR] HOME_SAFE ch6 is required in pose_config.yaml", file=sys.stderr)
+        print("[CONFIG][ERROR] HOME_SAFE ch6 is required in pose_config.yaml", file=sys.stderr)
         return 2
 
     move_angles = rounded_move_safe_angles(servos, int(home_gripper))
+    move_angles, clamp_notes = clamp_move_safe_angles(move_angles, servo_cfg)
     rounded_failures = validate_move_safe_angles(move_angles, servo_cfg)
     all_failures = []
     if not limit_ok:
         all_failures.extend(line[4:] if line.startswith("BAD ") else line for line in limit_lines if line.startswith("BAD "))
     all_failures.extend(rounded_failures)
 
-    print_ik_report(args, selected_target, robot_x, robot_y, candidate, servos, move_angles, all_failures)
+    print_ik_report(args, selected_target, robot_x, robot_y, candidate, servos, move_angles, all_failures, clamp_notes)
 
     if all_failures:
-        print("\n[ERROR] MOVE_SAFE send blocked because servo limits did not pass.", file=sys.stderr)
+        print("\n[SAFETY][ERROR] MOVE_SAFE send blocked because servo limits did not pass.", file=sys.stderr)
         return 2
 
     move_command = build_move_command(move_angles)
     if args.dry_run or not args.send:
         return 0
 
+    print("\n[SAFETY] Live YOLO-derived IK motion requested.")
+    print("[SAFETY] HOME_SAFE is only validated for idle/manual testing, not full path validation.")
+    print(f"[SAFETY] Final command preview: {move_command}")
+
     assert args.port is not None
     try:
         ser = open_serial(args.port, args.baud, args.timeout)
     except Exception as exc:  # pragma: no cover - hardware-dependent path
-        print(f"[ERROR] Failed to open serial port {args.port}: {exc}", file=sys.stderr)
+        print(f"[SERIAL][ERROR] Failed to open serial port {args.port}: {exc}", file=sys.stderr)
         return 2
 
     try:
@@ -369,7 +394,7 @@ def main() -> int:
             require_line(lines, "ACK HOME", "HOME return")
             require_line(lines, "DONE HOME", "HOME return")
     except RuntimeError as exc:
-        print(f"[ERROR] {exc}", file=sys.stderr)
+        print(f"[SERIAL][ERROR] {exc}", file=sys.stderr)
         return 2
     finally:
         ser.close()
