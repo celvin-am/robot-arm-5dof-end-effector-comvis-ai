@@ -1,0 +1,19 @@
+metadata:
+  status: servo_direction_observations
+  updated_at: '2026-05-06T21:12:56.822591Z'
+  note: Physical observations only. Do not directly treat as IK calibration until
+    verified.
+observations:
+  ch3:
+    function: elbow_pitch
+    plus_motion:
+      from_deg: 130
+      to_deg: 140
+      observed: elbow_or_tcp_more_down
+    minus_motion:
+      from_deg: 130
+      to_deg: 100
+      observed: elbow_or_tcp_down
+    status: physically_observed
+    note: CH3 real motion differs from initial expectation; validate joint-to-servo
+      conversion before live IK.

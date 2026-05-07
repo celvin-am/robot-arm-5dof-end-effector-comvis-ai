@@ -1,0 +1,78 @@
+metadata:
+  status: ik_reference_samples
+  note: Human-taught servo poses paired with measured board/robot coordinates for
+    IK calibration.
+  updated_at: '2026-05-06T21:03:32.380095Z'
+samples:
+  IK_REF_SAFE_HOVER_CENTER:
+    status: human_taught_live
+    source: gui_ik_reference_capture
+    board:
+      x_cm: 13.76
+      y_cm: 9.01
+    robot:
+      x_m: 0.1801
+      y_m: 0.0049
+      z_m: 0.055
+    z_mode: safe_hover
+    gripper_state:
+      value: open
+    servo:
+      ch1: 80
+      ch2: 85
+      ch3: 125
+      ch4: 95
+      ch5: 25
+      ch6: 40
+    notes:
+      object_class: donut
+      comment: ''
+    autonomous_validated: false
+  IK_REF_PRE_PICK_CENTER:
+    status: human_taught_live
+    source: gui_ik_reference_capture
+    board:
+      x_cm: 13.76
+      y_cm: 9.01
+    robot:
+      x_m: 0.1801
+      y_m: 0.0049
+      z_m: 0.015
+    z_mode: pre_pick
+    gripper_state:
+      value: open
+    servo:
+      ch1: 80
+      ch2: 65
+      ch3: 135
+      ch4: 95
+      ch5: 52
+      ch6: 40
+    notes:
+      object_class: donut
+      comment: ''
+    autonomous_validated: false
+  IK_REF_LIFT_CENTER:
+    status: human_taught_live
+    source: gui_ik_reference_capture
+    board:
+      x_cm: 13.76
+      y_cm: 9.01
+    robot:
+      x_m: 0.1801
+      y_m: 0.0049
+      z_m: 0.125
+    z_mode: lift
+    gripper_state:
+      value: close
+    servo:
+      ch1: 80
+      ch2: 107
+      ch3: 135
+      ch4: 95
+      ch5: 52
+      ch6: 20
+    notes:
+      object_class: donut
+      comment: ''
+    autonomous_validated: false

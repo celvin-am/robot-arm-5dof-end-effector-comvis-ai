@@ -81,11 +81,25 @@ drop_zones:
     z_place_m: null
 
 # Workspace geometry (checkerboard)
+# Current calibration uses actual measured printed board size 28.5 cm × 18.0 cm,
+# not the nominal 27 cm × 18 cm design size.
 board_limits_cm:
   x_min: 0.0
-  x_max: 27.0
+  x_max: 28.5
   y_min: 0.0
   y_max: 18.0
+
+# Board transform reference points for manual validation
+board_reference_points_cm:
+  center:
+    x: 14.25
+    y: 9.0
+  left_center:
+    x: 7.125
+    y: 9.0
+  right_center:
+    x: 21.375
+    y: 9.0
 
 # Object pick-area — exclude edge regions of checkerboard
 pick_area_cm:

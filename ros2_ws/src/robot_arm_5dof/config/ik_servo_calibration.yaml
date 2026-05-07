@@ -1,0 +1,51 @@
+ik_servo_calibration:
+  method: affine_from_reference_samples
+  status: initial_fit_from_center_references
+  source_samples:
+  - IK_REF_SAFE_HOVER_CENTER
+  - IK_REF_PRE_PICK_CENTER
+  - IK_REF_LIFT_CENTER
+  updated_at: '2026-05-06T21:22:37.281408Z'
+  warning: Initial empirical fit from center references only. Not validated for whole
+    workspace.
+  channels:
+    ch1:
+      enabled: true
+      scale: 0.9754646840148704
+      offset_deg: 0.011895910780669153
+      note: CH1 already uses front_servo_deg=80; affine fit should remain close.
+    ch2:
+      enabled: true
+      scale: 2.986486486486486
+      offset_deg: -197.05405405405406
+    ch3:
+      enabled: true
+      scale: 0.3061224489795939
+      offset_deg: 116.36054421768704
+      note: CH3 has physical direction observation; validate carefully before live
+        IK.
+    ch5:
+      enabled: true
+      scale: -0.29834254143646594
+      offset_deg: 68.35911602209958
+  z_mode_corrections:
+    enabled: false
+    status: initial_from_center_reference_errors
+    warning: Initial z_mode correction from center references only; not whole-workspace
+      validated.
+    modes:
+      safe_hover:
+        ch1_offset_deg: 0.0
+        ch2_offset_deg: 14.0
+        ch3_offset_deg: -5.0
+        ch5_offset_deg: -15.0
+      pre_pick:
+        ch1_offset_deg: 0.0
+        ch2_offset_deg: 33.0
+        ch3_offset_deg: 5.0
+        ch5_offset_deg: 16.0
+      lift:
+        ch1_offset_deg: 0.0
+        ch2_offset_deg: -1.0
+        ch3_offset_deg: 0.0
+        ch5_offset_deg: 4.0

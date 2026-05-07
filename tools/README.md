@@ -40,6 +40,26 @@ Usage examples:
 
 [CONFIG] `servo_pose_calibration_gui.py` is the main calibration interface for
 servo limits, gripper calibration, and taught pose calibration.
+[IK_REF] Taught poses are for manual sequence validation.
+[IK_REF] IK reference samples are coordinate-to-servo calibration data stored
+in `ik_reference_samples.yaml`.
+[IK_REF] `pre_pick` means a close-above-object pose, ready to grip.
+[IK_REF] `safe_hover` means a higher travel-safe pose above the object or path.
+[IK_REF] `pick` is an optional lower contact/grasp pose.
+[IK_REF] `lift` is the raised pose after gripping.
+[IK_REF] `custom` is a free reference mode.
+[IK_REF] `gripper_state` records whether the reference was captured open, close,
+half_open, or unknown.
+[IK_REF] Do not use an old manual pose as exact IK ground truth unless
+board_x/y/z was recorded with it.
+[CONFIG] Servo direction observations are physical notes, not final IK
+calibration.
+[SAFETY] Use compare_ik_to_reference reasoning before changing live IK
+conversion for CH2/CH3/CH5.
+[VIS] Robot Pose Visualization is an approximate operator aid, not a camera
+image and not guaranteed exact FK.
+[POSE] OPEN_GRIPPER, CLOSE_SOFT, and CLOSE_FULL are action shortcuts that apply
+the configured CH6 values to the current MOVE_SAFE pose.
 [POSE] Firmware HOME is not YAML HOME_SAFE.
 [CONFIG] The GUI updates `servo_config.yaml` and taught pose YAML only; it does
 not change firmware limits.

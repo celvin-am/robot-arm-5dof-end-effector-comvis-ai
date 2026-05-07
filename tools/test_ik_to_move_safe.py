@@ -13,6 +13,12 @@ import argparse
 import sys
 from typing import Any
 
+from ik_servo_calibration_utils import (
+    DEFAULT_IK_SERVO_CALIBRATION_CONFIG,
+    apply_ik_servo_calibration,
+    apply_z_mode_correction,
+    load_ik_servo_calibration,
+)
 from test_esp32_manual_move import open_serial, print_response, require_confirmation, send_command
 from test_ik_dry_run import (
     DEFAULT_KINEMATICS_CONFIG,
@@ -20,7 +26,7 @@ from test_ik_dry_run import (
     DEFAULT_SERVO_CONFIG,
     DEFAULT_TRANSFORM_CONFIG,
     board_to_robot,
-    candidate_servos,
+    candidate_servos_with_debug,
     channel_limits,
     load_required,
     solve_planar_ik,
@@ -46,12 +52,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--robot-y", type=float)
     parser.add_argument("--from-board", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--tcp-offset-mode")
+    parser.add_argument("--z-mode", choices=["safe_hover", "pre_pick", "pick", "lift", "custom"], default="custom")
     parser.add_argument("--solution", choices=["elbow_up", "elbow_down", "best"], default="elbow_up")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--send", action="store_true")
     parser.add_argument("--home-first", action="store_true")
     parser.add_argument("--return-home", action="store_true")
     parser.add_argument("--yes-i-understand-hardware-risk", action="store_true")
+    parser.add_argument("--use-ik-servo-calibration", action="store_true")
+    parser.add_argument("--use-z-mode-correction", action="store_true")
+    parser.add_argument("--ik-servo-calibration-config", default=DEFAULT_IK_SERVO_CALIBRATION_CONFIG)
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--kinematics-config", default=DEFAULT_KINEMATICS_CONFIG)
     parser.add_argument("--servo-config", default=DEFAULT_SERVO_CONFIG)
@@ -132,6 +142,9 @@ def print_report(
     robot_target: tuple[float, float],
     candidate: dict[str, Any],
     servos: dict[str, float],
+    ch1_debug: dict[str, float],
+    calibration_logs: list[str],
+    z_mode_logs: list[str],
     move_angles: list[int],
     servo_failures: list[str],
     clamp_notes: list[str],
@@ -155,6 +168,17 @@ def print_report(
     print("\nComputed servo angles CH1-CH5:")
     for channel in ("ch1", "ch2", "ch3", "ch4", "ch5"):
         print(f"  {channel}: {servos[channel]:.2f}")
+    print(f"[IK] base_angle_relative_deg = {ch1_debug['base_angle_relative_deg']:.2f}")
+    print(f"[IK] ch1_front_servo_deg = {ch1_debug['ch1_front_servo_deg']:.2f}")
+    print(f"[IK] ch1_servo_deg = {ch1_debug['ch1_servo_deg']:.2f}")
+    if calibration_logs:
+        print("\n[IK_CAL] Applied empirical IK servo calibration:")
+        for line in calibration_logs:
+            print(f"  {line}")
+    if z_mode_logs:
+        print("\n[IK_ZMODE] Applied z_mode correction:")
+        for line in z_mode_logs:
+            print(f"  {line}")
 
     print("\nFinal MOVE_SAFE angles CH1-CH6:")
     print("  " + " ".join(f"CH{index + 1}={value}" for index, value in enumerate(move_angles)))
@@ -210,6 +234,9 @@ def main() -> int:
     pose_cfg = load_required(args.pose_config, "pose config")
     transform_cfg = load_required(args.transform_config, "transform config")
     serial_cfg = load_required(args.serial_config, "serial config")
+    ik_servo_cal_cfg = None
+    if args.use_ik_servo_calibration or args.use_z_mode_correction:
+        ik_servo_cal_cfg = load_ik_servo_calibration(args.ik_servo_calibration_config)
 
     _ = serial_cfg
 
@@ -242,7 +269,14 @@ def main() -> int:
         print(f"[IK][ERROR] {exc}", file=sys.stderr)
         return 2
 
-    servos = candidate_servos(candidate, kin_cfg)
+    servos, ch1_debug = candidate_servos_with_debug(candidate, kin_cfg, servo_cfg)
+    calibration_logs: list[str] = []
+    z_mode_logs: list[str] = []
+    if ik_servo_cal_cfg is not None:
+        if args.use_ik_servo_calibration:
+            servos, calibration_logs = apply_ik_servo_calibration(servos, ik_servo_cal_cfg)
+        if args.use_z_mode_correction:
+            servos, z_mode_logs = apply_z_mode_correction(servos, ik_servo_cal_cfg, args.z_mode)
     limit_ok, limit_lines = validate_servos(servos, servo_cfg)
 
     home = pose_cfg.get("poses", {}).get("HOME_SAFE", {})
@@ -259,7 +293,19 @@ def main() -> int:
         all_failures.extend(line[4:] if line.startswith("BAD ") else line for line in limit_lines if line.startswith("BAD "))
     all_failures.extend(rounded_failures)
 
-    print_report(args, (board_x, board_y), (robot_x, robot_y), candidate, servos, move_angles, all_failures, clamp_notes)
+    print_report(
+        args,
+        (board_x, board_y),
+        (robot_x, robot_y),
+        candidate,
+        servos,
+        ch1_debug,
+        calibration_logs,
+        z_mode_logs,
+        move_angles,
+        all_failures,
+        clamp_notes,
+    )
 
     if all_failures:
         print("\n[SAFETY][ERROR] MOVE_SAFE send blocked because servo limits did not pass.", file=sys.stderr)

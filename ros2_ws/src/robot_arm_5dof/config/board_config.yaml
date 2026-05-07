@@ -1,30 +1,36 @@
 # Board / checkerboard configuration for robot_arm_5dof
 #
 # Board spec:
-#   9 columns × 6 rows of squares, each 3 cm
-#   Total size: 27 cm × 18 cm
+#   nominal design: 9 columns × 6 rows of squares, 27 cm × 18 cm
+#   actual measured printed board: 28.5 cm × 18.0 cm
 #
 # Frame convention (board origin = top-left outer corner):
-#   X_board → rightward (27 cm span)
+#   X_board → rightward (28.5 cm measured span)
 #   Y_board → downward (18 cm span)
 #   Z_board → normal to board surface
 #
 # Homography note:
 #   OpenCV findChessboardCorners detects INNER corners only: (9-1) × (6-1) = 8×5
 #   If OpenCV inner corners are used later, 9×6 squares means 8×5 inner corners.
-#   For outer-corner homography to (0,0),(27,0),(0,18),(27,18),
+#   For outer-corner homography to (0,0),(28.5,0),(0,18),(28.5,18),
 #   use manual 4-corner selection or compute outer corners analytically.
-#   See tools/test_homography.py for implementation details.
+#   Changing board dimensions means homography must be recalibrated before
+#   trusting pixel-to-board coordinates.
+#   See tools/calibrate_board_homography.py for implementation details.
 
 board:
-  square_size_cm: 3.0             # each square is 3 cm
+  square_size_cm: 3.0             # keep nominal square size for backward compatibility
+  square_size_cm_x: 3.1666667     # actual measured X square size = 28.5 / 9
+  square_size_cm_y: 3.0           # actual measured Y square size = 18.0 / 6
   cols_squares: 9                 # squares in X direction
   rows_squares: 6                 # squares in Y direction
-  width_cm: 27.0                  # total board width (9 * 3)
-  height_cm: 18.0                 # total board height (6 * 3)
+  width_cm: 28.5                  # actual measured printed board width
+  height_cm: 18.0                 # actual measured printed board height
   origin: top_left                # board frame origin location
   x_direction: right
   y_direction: down
+  measured_status: actual_print_measured
+  note: "Actual printed checkerboard measured 28.5 cm x 18.0 cm; X is stretched relative to nominal 27 cm."
 
   # Inner corner pattern for OpenCV findChessboardCorners
   # A 9×6 square board has (9-1)×(6-1) = 8×5 inner corners
@@ -32,12 +38,15 @@ board:
   inner_corners_rows: 5
 
   # Path to precomputed homography matrix (.npy file, 3x3 float)
-  # Computed by tools/test_homography.py during Phase 3 calibration
+  # Computed by tools/calibrate_board_homography.py during Phase 3 calibration
   homography_file: ros2_ws/src/robot_arm_5dof/config/homography.npy          # fill after homography calibration
 
 # Validation reference (target values after homography calibration):
 #   top-left outer     → ~(0, 0) cm
-#   top-right outer    → ~(27, 0) cm
+#   top-right outer    → ~(28.5, 0) cm
 #   bottom-left outer  → ~(0, 18) cm
-#   bottom-right outer → ~(27, 18) cm
+#   bottom-right outer → ~(28.5, 18) cm
+# Warning:
+#   Board dimensions changed from nominal 27 × 18 to measured 28.5 × 18.
+#   Recalibrate homography before trusting pixel-to-board coordinates.
 # Tolerance: ±1 cm

@@ -64,13 +64,23 @@ The old `ray_cast_to_floor()` logic in `viz_env_node.py` is only a legacy refere
 
 ### 2.2 Workspace Checkerboard
 
-Checkerboard data is fixed:
+Checkerboard nominal design:
 
 ```text
 square size = 3 cm
 columns     = 9 squares to the right
 rows        = 6 squares downward
 board size  = 27 cm x 18 cm
+```
+
+Current measured printed checkerboard used for calibration:
+
+```text
+width_x_cm  = 28.5
+height_y_cm = 18.0
+square_size_cm_x = 28.5 / 9 = 3.1666667
+square_size_cm_y = 18.0 / 6 = 3.0
+board_center = (14.25, 9.0) cm
 ```
 
 Board frame convention:
@@ -83,6 +93,15 @@ Z_board      = normal to board surface
 ```
 
 For OpenCV chessboard corner detection, remember that number of inner corners is not necessarily the same as number of squares. A 9 x 6 square board normally has 8 x 5 inner corners.
+
+Important calibration rule:
+
+```text
+Current homography and board-to-robot work must use the actual measured print size,
+not the nominal 27 cm x 18 cm design size.
+Changing board dimensions means homography must be recalibrated before trusting
+pixel-to-board coordinates.
+```
 
 ### 2.3 YOLO Model
 
@@ -1130,15 +1149,22 @@ Draft schema:
 ```yaml
 board:
   square_size_cm: 3.0
+  square_size_cm_x: 3.1666667
+  square_size_cm_y: 3.0
   cols_squares: 9
   rows_squares: 6
-  width_cm: 27.0
+  width_cm: 28.5
   height_cm: 18.0
   origin: top_left
   x_direction: right
   y_direction: down
   homography_file: config/homography.npy
 ```
+
+Use nominal `square_size_cm` only for backward compatibility. Current
+calibration must use the measured printed board width and height. If those
+dimensions change, homography must be recalibrated before trusting
+pixel-to-board coordinates.
 
 ### 5.5 Board-to-Robot Transform Calibration
 
@@ -1172,13 +1198,18 @@ Draft schema:
 
 ```yaml
 board_to_robot:
-  robot_base_x_board_cm: null
-  robot_base_y_board_cm: null
-  robot_yaw_offset_deg: null
+  robot_base_x_board_cm: 14.25
+  robot_base_y_board_cm: -9.0
+  robot_yaw_offset_deg: -90.0
   units_output: meter
 ```
 
 Use a rotation if the robot is not aligned with board axes. Do not assume perfect alignment unless tested.
+The current measured-initial assumption is that the robot base is centered
+above the printed board, 9 cm outside the top edge, and faces the board center.
+Geometrically, the base-to-board-center direction lies along board Y+, but the
+current transform implementation uses the sign convention where yaw -90 deg maps
+board Y+ to positive robot X. Therefore the active config uses `-90.0`, not `+90.0`.
 
 ### 5.6 Pick/Place Height Calibration
 

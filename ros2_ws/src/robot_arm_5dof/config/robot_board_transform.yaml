@@ -17,7 +17,10 @@
 #
 # Robot frame convention:
 #   Origin = robot base center
-#   Robot faces toward positive board Y direction
+#   Robot base is centered above the checkerboard and outside the top edge.
+#   Geometrically the board center lies along board Y+ from the robot base,
+#   but the current transform implementation uses yaw sign convention where
+#   -90 deg maps board Y+ to positive robot X.
 #   Z_robot = upward
 #
 # Units:
@@ -25,23 +28,44 @@
 #   output robot coordinates are meters
 
 board_to_robot:
-  # Provisional measured position of robot base relative to board origin (cm)
-  robot_base_x_board_cm: 13.5
-  robot_base_y_board_cm: -8.5
+  # Measured position of robot base relative to actual printed board origin (cm)
+  robot_base_x_board_cm: 14.25
+  robot_base_y_board_cm: -9.0
 
-  # Physical orientation note. Yaw offset remains configurable until validated.
-  robot_forward_direction_on_board: positive_y
+  # Physical orientation note. Robot and camera face each other across the checkerboard.
+  # Geometrically, board center from robot base is approximately dx=0, dy=18.
+  # In the current transform sign convention, yaw -90 deg maps that board Y+
+  # direction to positive robot X.
+  robot_forward_direction_on_board: faces_board_center
 
   # Yaw offset: rotation of robot frame relative to board frame (degrees)
-  # 0 = use board-axis delta directly after subtracting base position
-  robot_yaw_offset_deg: 0.0
+  # Current measured-sign-validated value: -90 deg
+  robot_yaw_offset_deg: -90.0
 
   # Units
   units_input: cm
   units_output: meter
 
-  status: provisional
-  note: yaw offset and transform must be physically validated before robot motion
+  status: measured_initial_sign_validated
+  note: "Robot base centered above actual printed board, 9 cm outside top edge. Current transform convention requires yaw -90 deg so board center maps to positive robot X."
+
+  # Qualitative transform test points for manual validation
+  test_points_board_cm:
+    center:
+      x: 14.25
+      y: 9.0
+      expected_robot_x_m_approx: 0.18
+      expected_robot_y_m_approx: 0.0
+    left_center:
+      x: 7.125
+      y: 9.0
+      expected_robot_x_m_similar_to_center: true
+      expected_robot_y_sign: positive
+    right_center:
+      x: 21.375
+      y: 9.0
+      expected_robot_x_m_similar_to_center: true
+      expected_robot_y_sign: negative
 
   # Optional: explicit rotation matrix elements (replace yaw_offset_deg if needed)
   # Set rot_00, rot_01, rot_10, rot_11 to non-null values to use matrix form instead

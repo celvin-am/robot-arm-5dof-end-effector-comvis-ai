@@ -76,6 +76,42 @@ def servo_value(joint_deg: float, model: dict[str, Any]) -> float:
     )
 
 
+def ch1_front_servo_deg(kin_cfg: dict[str, Any], servo_cfg: dict[str, Any] | None = None) -> float:
+    model = kin_cfg.get("servo_model", {}).get("ch1_base_yaw", {})
+    if "front_servo_deg" in model:
+        return float(model["front_servo_deg"])
+
+    if servo_cfg is not None:
+        servo_entry = servo_cfg.get("servos", {}).get("ch1", {})
+        if "front_servo_deg" in servo_entry:
+            return float(servo_entry["front_servo_deg"])
+
+    # Initial practical calibration from taught front-facing poses.
+    return 80.0
+
+
+def ch1_servo_value(
+    joint_deg: float,
+    kin_cfg: dict[str, Any],
+    servo_cfg: dict[str, Any] | None = None,
+) -> tuple[float, dict[str, float]]:
+    model = kin_cfg["servo_model"]["ch1_base_yaw"]
+    front_deg = ch1_front_servo_deg(kin_cfg, servo_cfg)
+    direction = float(model.get("direction", 1))
+    offset_deg = float(model.get("offset_deg", 0))
+    # Legacy dry-run IK stores CH1 as (atan2(y, x) - 90 deg). For ESP32 servo
+    # output we need the front-relative base angle where robot +X forward is 0 deg.
+    base_angle_relative_deg = joint_deg + 90.0
+    servo_deg = front_deg + direction * base_angle_relative_deg + offset_deg
+    return servo_deg, {
+        "base_angle_relative_deg": base_angle_relative_deg,
+        "ch1_front_servo_deg": front_deg,
+        "ch1_servo_deg": servo_deg,
+        "ch1_direction": direction,
+        "ch1_offset_deg": offset_deg,
+    }
+
+
 def channel_limits(servo_cfg: dict[str, Any], channel: str) -> tuple[float, float]:
     entry = servo_cfg.get("servos", {}).get(channel, {})
     lo = entry.get("min_angle_deg")
@@ -232,15 +268,29 @@ def solve_planar_ik(
     return result
 
 
-def candidate_servos(candidate: dict[str, float], kin_cfg: dict[str, Any]) -> dict[str, float]:
+def candidate_servos_with_debug(
+    candidate: dict[str, float],
+    kin_cfg: dict[str, Any],
+    servo_cfg: dict[str, Any] | None = None,
+) -> tuple[dict[str, float], dict[str, float]]:
     model = kin_cfg["servo_model"]
+    ch1_servo_deg, ch1_debug = ch1_servo_value(candidate["j1_base_yaw_deg"], kin_cfg, servo_cfg)
     return {
-        "ch1": servo_value(candidate["j1_base_yaw_deg"], model["ch1_base_yaw"]),
+        "ch1": ch1_servo_deg,
         "ch2": servo_value(candidate["j2_shoulder_pitch_deg"], model["ch2_shoulder_pitch"]),
         "ch3": servo_value(candidate["j3_elbow_pitch_deg"], model["ch3_elbow_pitch"]),
         "ch4": servo_value(candidate["j4_wrist_rotate_deg"], model["ch4_wrist_rotate"]),
         "ch5": servo_value(candidate["j5_wrist_pitch_deg"], model["ch5_wrist_pitch"]),
-    }
+    }, ch1_debug
+
+
+def candidate_servos(
+    candidate: dict[str, float],
+    kin_cfg: dict[str, Any],
+    servo_cfg: dict[str, Any] | None = None,
+) -> dict[str, float]:
+    servos, _debug = candidate_servos_with_debug(candidate, kin_cfg, servo_cfg)
+    return servos
 
 
 def validate_servos(servos: dict[str, float], servo_cfg: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -333,11 +383,14 @@ def print_report(
             "j5_wrist_pitch_deg",
         ):
             print(f"    {key}: {candidate[key]:.2f} deg")
-        servos = candidate_servos(candidate, kin_cfg)
+        servos, ch1_debug = candidate_servos_with_debug(candidate, kin_cfg, servo_cfg)
         ok, limit_lines = validate_servos(servos, servo_cfg)
         print("  Candidate servo angles CH1-CH5:")
         for ch in ("ch1", "ch2", "ch3", "ch4", "ch5"):
             print(f"    {ch}: {servos[ch]:.2f} deg")
+        print(f"  [IK] base_angle_relative_deg = {ch1_debug['base_angle_relative_deg']:.2f}")
+        print(f"  [IK] ch1_front_servo_deg = {ch1_debug['ch1_front_servo_deg']:.2f}")
+        print(f"  [IK] ch1_servo_deg = {ch1_debug['ch1_servo_deg']:.2f}")
         print(f"  [SAFETY] Servo limit check: {'PASS' if ok else 'FAIL'}")
         for line in limit_lines:
             print(f"    {line}")

@@ -10,6 +10,7 @@ explicitly enables live hardware risk mode.
 from __future__ import annotations
 
 import argparse
+import math
 import queue
 import string
 import sys
@@ -34,8 +35,13 @@ DEFAULT_BAUD_FALLBACK = 115200
 DEFAULT_STEP = 2
 DEFAULT_SERVO_CONFIG = "ros2_ws/src/robot_arm_5dof/config/servo_config.yaml"
 DEFAULT_POSE_CONFIG = "ros2_ws/src/robot_arm_5dof/config/pose_config.yaml"
+DEFAULT_KINEMATICS_CONFIG = "ros2_ws/src/robot_arm_5dof/config/robot_kinematics.yaml"
 DEFAULT_SERIAL_CONFIG = "ros2_ws/src/robot_arm_5dof/config/serial_config.yaml"
 DEFAULT_OUTPUT = "ros2_ws/src/robot_arm_5dof/config/taught_pick_place_poses.yaml"
+DEFAULT_BOARD_CONFIG = "ros2_ws/src/robot_arm_5dof/config/board_config.yaml"
+DEFAULT_TRANSFORM_CONFIG = "ros2_ws/src/robot_arm_5dof/config/robot_board_transform.yaml"
+DEFAULT_IK_REFERENCE_OUTPUT = "ros2_ws/src/robot_arm_5dof/config/ik_reference_samples.yaml"
+DEFAULT_DIRECTION_OBSERVATIONS_OUTPUT = "ros2_ws/src/robot_arm_5dof/config/servo_direction_observations.yaml"
 SERIAL_TIMEOUT_SEC = 5.0
 CONNECT_RESET_WAIT_SEC = 2.0
 POST_CONNECT_FLUSH_SEC = 0.1
@@ -81,6 +87,15 @@ POSE_DESCRIPTIONS = {
 GRIPPER_DEFAULTS = {"open_deg": 50, "close_soft_deg": 35, "close_full_deg": 15}
 EXPECTED_SERIAL_PREFIXES = ("PONG", "STATUS ", "LIMITS ", "HELP ", "ACK ", "DONE ", "ERR ")
 BOOT_NOISE_PREFIXES = ("READY ", "HELP ")
+OBSERVATION_OPTIONS = {
+    "ch1": ("clockwise", "counter_clockwise", "unknown"),
+    "ch2": ("arm_up", "arm_down", "tcp_up", "tcp_down", "unknown"),
+    "ch3": ("elbow_up", "elbow_down", "tcp_up", "tcp_down", "elbow_or_tcp_down", "elbow_or_tcp_more_down", "unknown"),
+    "ch4": ("rotate_left", "rotate_right", "unknown"),
+    "ch5": ("gripper_tip_up", "gripper_tip_down", "unknown"),
+    "ch6": ("open", "close", "unknown"),
+}
+OBSERVATION_STATUS_OPTIONS = ("unknown", "physically_observed", "needs_retest")
 
 
 @dataclass
@@ -132,7 +147,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--baud", type=int, default=None, help="Defaults to serial_config baud_rate or 115200.")
     parser.add_argument("--servo-config", default=DEFAULT_SERVO_CONFIG)
     parser.add_argument("--pose-config", default=DEFAULT_POSE_CONFIG)
+    parser.add_argument("--kinematics-config", default=DEFAULT_KINEMATICS_CONFIG)
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
+    parser.add_argument("--board-config", default=DEFAULT_BOARD_CONFIG)
+    parser.add_argument("--transform-config", default=DEFAULT_TRANSFORM_CONFIG)
+    parser.add_argument("--ik-reference-output", default=DEFAULT_IK_REFERENCE_OUTPUT)
+    parser.add_argument("--servo-direction-observations-output", default=DEFAULT_DIRECTION_OBSERVATIONS_OUTPUT)
     parser.add_argument("--step", type=int, default=DEFAULT_STEP)
     parser.add_argument("--yes-i-understand-hardware-risk", action="store_true")
     parser.add_argument("--no-confirm", action="store_true")
@@ -155,13 +175,22 @@ class ServoPoseCalibrationGUI:
         self.ui_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
         self.output_path = Path(args.output)
+        self.ik_reference_output_path = Path(args.ik_reference_output)
+        self.direction_observations_output_path = Path(args.servo_direction_observations_output)
         self.servo_cfg = {}
         self.pose_cfg = {}
+        self.kin_cfg = {}
         self.serial_cfg = {}
+        self.board_cfg = {}
+        self.transform_cfg = {}
         self.taught_payload = {}
+        self.ik_reference_payload = {}
+        self.direction_observations_payload = {}
         self.pose_cache: dict[str, dict[str, int]] = {}
         self.limit_cache: dict[str, tuple[int, int]] = {}
         self.gripper_calibration = deepcopy(GRIPPER_DEFAULTS)
+        self.board_width_cm = 28.5
+        self.board_height_cm = 18.0
         self.session_log_lines: list[str] = []
 
         self.channel_vars = {channel: tk.IntVar(value=DEFAULT_FIRMWARE_HOME[channel]) for channel in CHANNELS}
@@ -173,17 +202,57 @@ class ServoPoseCalibrationGUI:
         self.connection_var = tk.StringVar(value="DRY RUN" if self.dry_run_mode else "DISCONNECTED")
         self.mode_var = tk.StringVar(value="DRY RUN" if self.dry_run_mode else "LIVE")
         self.active_loaded_pose_var = tk.StringVar(value="(none)")
+        self.safety_warning_var = tk.StringVar(value="")
         self.current_command_var = tk.StringVar(value="")
         self.latest_status_var = tk.StringVar(value="No STATUS yet")
         self.custom_pose_name_var = tk.StringVar(value="")
+        self.ik_ref_name_var = tk.StringVar(value="IK_REF_HOVER_CENTER")
+        self.ik_ref_board_x_var = tk.StringVar(value="13.51")
+        self.ik_ref_board_y_var = tk.StringVar(value="8.80")
+        self.ik_ref_z_var = tk.StringVar(value="0.12")
+        self.ik_ref_z_mode_var = tk.StringVar(value="safe_hover")
+        self.ik_ref_object_class_var = tk.StringVar(value="center_test")
+        self.ik_ref_comment_var = tk.StringVar(value="")
+        self.ik_ref_gripper_state_var = tk.StringVar(value="unknown")
+        self.ik_ref_robot_x_var = tk.StringVar(value="-")
+        self.ik_ref_robot_y_var = tk.StringVar(value="-")
+        self.ik_ref_active_name_var = tk.StringVar(value="(none)")
+        self.ik_ref_out_of_board_allowed_var = tk.BooleanVar(value=False)
+        self.ik_ref_validation_var = tk.StringVar(value="VALID")
         self.gripper_open_var = tk.IntVar(value=GRIPPER_DEFAULTS["open_deg"])
         self.gripper_soft_var = tk.IntVar(value=GRIPPER_DEFAULTS["close_soft_deg"])
         self.gripper_full_var = tk.IntVar(value=GRIPPER_DEFAULTS["close_full_deg"])
+        self.direction_plus_vars = {channel: tk.StringVar(value="unknown") for channel in CHANNELS}
+        self.direction_minus_vars = {channel: tk.StringVar(value="unknown") for channel in CHANNELS}
+        self.direction_status_vars = {channel: tk.StringVar(value="unknown") for channel in CHANNELS}
+        self.direction_note_vars = {channel: tk.StringVar(value="") for channel in CHANNELS}
+        self.direction_plus_from_vars = {channel: tk.StringVar(value="") for channel in CHANNELS}
+        self.direction_plus_to_vars = {channel: tk.StringVar(value="") for channel in CHANNELS}
+        self.direction_minus_from_vars = {channel: tk.StringVar(value="") for channel in CHANNELS}
+        self.direction_minus_to_vars = {channel: tk.StringVar(value="") for channel in CHANNELS}
+
+        for variable in (
+            self.ik_ref_name_var,
+            self.ik_ref_board_x_var,
+            self.ik_ref_board_y_var,
+            self.ik_ref_z_var,
+            self.ik_ref_z_mode_var,
+            self.ik_ref_object_class_var,
+            self.ik_ref_comment_var,
+            self.ik_ref_gripper_state_var,
+            self.ik_ref_out_of_board_allowed_var,
+        ):
+            variable.trace_add("write", lambda *_args: self._refresh_ik_ref_preview())
 
         self.log_widget: scrolledtext.ScrolledText | None = None
         self.yaml_widget: scrolledtext.ScrolledText | None = None
+        self.ik_ref_preview_widget: scrolledtext.ScrolledText | None = None
+        self.telemetry_widget: scrolledtext.ScrolledText | None = None
+        self.top_view_canvas: tk.Canvas | None = None
+        self.side_view_canvas: tk.Canvas | None = None
         self.scale_widgets: dict[str, tk.Scale] = {}
         self.pose_button_frame: ttk.Frame | None = None
+        self.pose_notebook: ttk.Notebook | None = None
 
         self._reload_all_configs(initial=True)
         self._apply_angles_to_ui(self._resolve_home_safe_angles())
@@ -196,6 +265,7 @@ class ServoPoseCalibrationGUI:
         self._refresh_servo_limit_labels()
         self._refresh_gripper_widgets()
         self._refresh_yaml_preview()
+        self._refresh_ik_ref_preview()
         self._update_command_preview()
 
         self._log(
@@ -204,20 +274,32 @@ class ServoPoseCalibrationGUI:
         )
         self._log("[CONFIG] Firmware HOME is not YAML HOME_SAFE.")
         self._log("[CONFIG] Saving a pose means human_taught_live, validated_for=manual_testing_only, autonomous_validated=false.")
+        self._log("[IK_REF] IK reference samples are coordinate-to-servo calibration data, separate from taught pick/place poses.")
         self.root.after(100, self._drain_ui_queue)
 
     def _reload_all_configs(self, initial: bool = False) -> None:
         self.servo_cfg = load_yaml_file(self.args.servo_config, "servo config")
         self.pose_cfg = load_yaml_file(self.args.pose_config, "pose config")
+        self.kin_cfg = load_yaml_file(self.args.kinematics_config, "kinematics config")
         self.serial_cfg = load_yaml_file(self.args.serial_config, "serial config")
+        self.board_cfg = load_yaml_file(self.args.board_config, "board config")
+        self.transform_cfg = load_yaml_file(self.args.transform_config, "board transform config")
         self.taught_payload = self._load_or_init_output()
+        self.ik_reference_payload = self._load_or_init_ik_reference_output()
+        self.direction_observations_payload = self._load_or_init_direction_observations_output()
         self.limit_cache = self._read_limits(self.servo_cfg)
         self.pose_cache = self._build_pose_cache()
         self.gripper_calibration = self._read_gripper_calibration(self.servo_cfg)
+        self.board_width_cm, self.board_height_cm = self._read_board_limits(self.board_cfg)
+        self._load_direction_observations_into_vars()
+        self._update_direction_observation_warning()
         if not initial:
             self._refresh_servo_limit_labels()
             self._refresh_gripper_widgets()
             self._refresh_yaml_preview()
+            self._refresh_ik_ref_preview()
+            self._refresh_telemetry_preview()
+            self._refresh_visualization()
             self._update_command_preview()
 
     def _load_or_init_output(self) -> dict[str, Any]:
@@ -235,6 +317,55 @@ class ServoPoseCalibrationGUI:
             }
         payload.setdefault("metadata", {})
         payload.setdefault("poses", {})
+        return payload
+
+    def _load_or_init_ik_reference_output(self) -> dict[str, Any]:
+        if self.ik_reference_output_path.exists():
+            payload = load_yaml_file(str(self.ik_reference_output_path), "IK reference output")
+        else:
+            payload = {
+                "metadata": {
+                    "status": "ik_reference_samples",
+                    "note": "Human-taught servo poses paired with measured board/robot coordinates for IK calibration.",
+                    "updated_at": None,
+                },
+                "samples": {},
+            }
+        payload.setdefault("metadata", {})
+        payload.setdefault("samples", {})
+        return payload
+
+    def _load_or_init_direction_observations_output(self) -> dict[str, Any]:
+        if self.direction_observations_output_path.exists():
+            payload = load_yaml_file(str(self.direction_observations_output_path), "servo direction observations output")
+        else:
+            payload = {
+                "metadata": {
+                    "status": "servo_direction_observations",
+                    "updated_at": utc_now(),
+                    "note": "Physical observations only. Do not directly treat as IK calibration until verified.",
+                },
+                "observations": {
+                    "ch3": {
+                        "function": "elbow_pitch",
+                        "plus_motion": {
+                            "from_deg": 130,
+                            "to_deg": 140,
+                            "observed": "elbow_or_tcp_more_down",
+                        },
+                        "minus_motion": {
+                            "from_deg": 130,
+                            "to_deg": 100,
+                            "observed": "elbow_or_tcp_down",
+                        },
+                        "status": "physically_observed",
+                        "note": "CH3 real motion differs from initial expectation; validate joint-to-servo conversion before live IK.",
+                    }
+                },
+            }
+            save_yaml_file(self.direction_observations_output_path, payload)
+        payload.setdefault("metadata", {})
+        payload.setdefault("observations", {})
         return payload
 
     def _read_limits(self, servo_cfg: dict[str, Any]) -> dict[str, tuple[int, int]]:
@@ -257,6 +388,34 @@ class ServoPoseCalibrationGUI:
             "close_soft_deg": int(root.get("close_soft_deg", 35)),
             "close_full_deg": int(root.get("close_full_deg", servo_ch6.get("close_angle_deg", GRIPPER_DEFAULTS["close_full_deg"]))),
         }
+
+    def _read_board_limits(self, board_cfg: dict[str, Any]) -> tuple[float, float]:
+        board = board_cfg.get("board", {})
+        return float(board.get("width_cm", 28.5)), float(board.get("height_cm", 18.0))
+
+    def _load_direction_observations_into_vars(self) -> None:
+        observations = self.direction_observations_payload.get("observations", {})
+        for channel in CHANNELS:
+            obs = observations.get(channel, {})
+            plus = obs.get("plus_motion", {})
+            minus = obs.get("minus_motion", {})
+            self.direction_plus_vars[channel].set(str(plus.get("observed", "unknown")))
+            self.direction_minus_vars[channel].set(str(minus.get("observed", "unknown")))
+            self.direction_status_vars[channel].set(str(obs.get("status", "unknown")))
+            self.direction_note_vars[channel].set(str(obs.get("note", "")))
+            self.direction_plus_from_vars[channel].set("" if plus.get("from_deg") is None else str(plus.get("from_deg")))
+            self.direction_plus_to_vars[channel].set("" if plus.get("to_deg") is None else str(plus.get("to_deg")))
+            self.direction_minus_from_vars[channel].set("" if minus.get("from_deg") is None else str(minus.get("from_deg")))
+            self.direction_minus_to_vars[channel].set("" if minus.get("to_deg") is None else str(minus.get("to_deg")))
+
+    def _update_direction_observation_warning(self) -> None:
+        ch3_obs = self.direction_observations_payload.get("observations", {}).get("ch3", {})
+        if ch3_obs and str(ch3_obs.get("status", "unknown")) == "physically_observed":
+            self.safety_warning_var.set(
+                "[SAFETY] CH3 direction observation exists. Do not trust live IK until CH2/CH3/CH5 conversion is calibrated from IK reference samples."
+            )
+        else:
+            self.safety_warning_var.set("")
 
     def _angles_from_block(self, block: dict[str, Any]) -> dict[str, int] | None:
         if not isinstance(block, dict):
@@ -310,10 +469,13 @@ class ServoPoseCalibrationGUI:
 
         top = ttk.Frame(outer)
         top.pack(fill=tk.X, pady=(0, 8))
-        middle = ttk.Panedwindow(outer, orient=tk.HORIZONTAL)
-        middle.pack(fill=tk.BOTH, expand=True)
-        bottom = ttk.Panedwindow(outer, orient=tk.HORIZONTAL)
-        bottom.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        body = ttk.Panedwindow(outer, orient=tk.VERTICAL)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        middle = ttk.Panedwindow(body, orient=tk.HORIZONTAL)
+        bottom = ttk.Panedwindow(body, orient=tk.HORIZONTAL)
+        body.add(middle, weight=7)
+        body.add(bottom, weight=4)
 
         left_top = ttk.Frame(top)
         left_top.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -324,7 +486,7 @@ class ServoPoseCalibrationGUI:
         self._build_status_panel(right_top)
         self._build_servo_panel(middle)
         self._build_pose_panel(middle)
-        self._build_log_and_yaml_panel(bottom)
+        self._build_bottom_panels(bottom)
 
     def _build_connection_panel(self, parent: ttk.Frame) -> None:
         frame = ttk.LabelFrame(parent, text="Connection")
@@ -361,6 +523,9 @@ class ServoPoseCalibrationGUI:
         ttk.Label(frame, textvariable=self.active_loaded_pose_var).grid(row=0, column=1, sticky="w", padx=4, pady=4)
         ttk.Label(frame, text="Latest STATUS").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         ttk.Label(frame, textvariable=self.latest_status_var, wraplength=400).grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        tk.Label(frame, textvariable=self.safety_warning_var, wraplength=420, justify="left", fg="#b00020").grid(
+            row=2, column=0, columnspan=2, sticky="w", padx=4, pady=4
+        )
 
     def _build_servo_panel(self, parent: ttk.Panedwindow) -> None:
         frame = ttk.LabelFrame(parent, text="Servo Control / Limit Calibration")
@@ -410,7 +575,6 @@ class ServoPoseCalibrationGUI:
 
         bottom_controls = ttk.Frame(frame)
         bottom_controls.grid(row=len(CHANNELS) + 1, column=0, columnspan=7, sticky="ew", padx=4, pady=(8, 4))
-        ttk.Button(bottom_controls, text="Send Current MOVE_SAFE", command=self.on_send_current_pose).pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(bottom_controls, text="Save Servo Limits", command=self.save_servo_limits).pack(side=tk.LEFT, padx=(0, 6))
         ttk.Label(bottom_controls, text="Step (deg)").pack(side=tk.LEFT, padx=(12, 4))
         ttk.Spinbox(bottom_controls, from_=1, to=30, textvariable=self.step_var, width=6, command=self._on_step_changed).pack(side=tk.LEFT, padx=(0, 6))
@@ -422,83 +586,243 @@ class ServoPoseCalibrationGUI:
         ttk.Label(command_bar, text="Current MOVE_SAFE").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Label(command_bar, textvariable=self.current_command_var).pack(side=tk.LEFT)
 
+        actions = ttk.LabelFrame(frame, text="Action")
+        actions.grid(row=len(CHANNELS) + 3, column=0, columnspan=7, sticky="ew", padx=4, pady=(8, 4))
+        ttk.Button(actions, text="Send Current MOVE_SAFE", command=self.on_send_current_pose).grid(
+            row=0, column=0, sticky="ew", padx=4, pady=4
+        )
+        ttk.Button(actions, text="OPEN_GRIPPER", command=lambda: self.perform_gripper_action("open_deg", "OPEN_GRIPPER")).grid(
+            row=0, column=1, sticky="ew", padx=4, pady=4
+        )
+        ttk.Button(actions, text="CLOSE_SOFT", command=lambda: self.perform_gripper_action("close_soft_deg", "CLOSE_SOFT")).grid(
+            row=0, column=2, sticky="ew", padx=4, pady=4
+        )
+        ttk.Button(actions, text="CLOSE_FULL", command=lambda: self.perform_gripper_action("close_full_deg", "CLOSE_FULL")).grid(
+            row=0, column=3, sticky="ew", padx=4, pady=4
+        )
+        ttk.Button(actions, text="STOP", command=self.on_stop).grid(row=0, column=4, sticky="ew", padx=4, pady=4)
+        for col in range(5):
+            actions.columnconfigure(col, weight=1)
+
         grip = ttk.LabelFrame(frame, text="Gripper Calibration")
-        grip.grid(row=len(CHANNELS) + 3, column=0, columnspan=7, sticky="ew", padx=4, pady=(8, 4))
+        grip.grid(row=len(CHANNELS) + 4, column=0, columnspan=7, sticky="ew", padx=4, pady=(8, 4))
         ttk.Label(grip, text="OPEN").grid(row=0, column=0, sticky="w", padx=4, pady=4)
         ttk.Label(grip, textvariable=self.gripper_open_var).grid(row=0, column=1, sticky="w", padx=4, pady=4)
         ttk.Button(grip, text="Set OPEN From Current", command=lambda: self.set_gripper_calibration_from_current("open_deg")).grid(
             row=0, column=2, sticky="ew", padx=4, pady=4
         )
-        ttk.Label(grip, text="SOFT CLOSE").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(grip, text="CLOSE_SOFT").grid(row=1, column=0, sticky="w", padx=4, pady=4)
         ttk.Label(grip, textvariable=self.gripper_soft_var).grid(row=1, column=1, sticky="w", padx=4, pady=4)
-        ttk.Button(grip, text="Set SOFT CLOSE From Current", command=lambda: self.set_gripper_calibration_from_current("close_soft_deg")).grid(
+        ttk.Button(grip, text="Set CLOSE_SOFT From Current", command=lambda: self.set_gripper_calibration_from_current("close_soft_deg")).grid(
             row=1, column=2, sticky="ew", padx=4, pady=4
         )
-        ttk.Label(grip, text="FULL CLOSE").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(grip, text="CLOSE_FULL").grid(row=2, column=0, sticky="w", padx=4, pady=4)
         ttk.Label(grip, textvariable=self.gripper_full_var).grid(row=2, column=1, sticky="w", padx=4, pady=4)
-        ttk.Button(grip, text="Set FULL CLOSE From Current", command=lambda: self.set_gripper_calibration_from_current("close_full_deg")).grid(
+        ttk.Button(grip, text="Set CLOSE_FULL From Current", command=lambda: self.set_gripper_calibration_from_current("close_full_deg")).grid(
             row=2, column=2, sticky="ew", padx=4, pady=4
         )
         ttk.Button(grip, text="Save Gripper Calibration", command=self.save_gripper_calibration).grid(
             row=0, column=3, rowspan=3, sticky="ns", padx=8, pady=4
         )
-        ttk.Button(grip, text="OPEN CH6", command=lambda: self.use_gripper_quick("open_deg")).grid(row=0, column=4, sticky="ew", padx=4, pady=4)
-        ttk.Button(grip, text="SOFT CLOSE CH6", command=lambda: self.use_gripper_quick("close_soft_deg")).grid(
-            row=1, column=4, sticky="ew", padx=4, pady=4
-        )
-        ttk.Button(grip, text="FULL CLOSE CH6", command=lambda: self.use_gripper_quick("close_full_deg")).grid(
-            row=2, column=4, sticky="ew", padx=4, pady=4
-        )
+        for col in range(4):
+            grip.columnconfigure(col, weight=1)
 
     def _build_pose_panel(self, parent: ttk.Panedwindow) -> None:
-        frame = ttk.LabelFrame(parent, text="Pose Load / Go / Save")
+        frame = ttk.LabelFrame(parent, text="Calibration Workflow")
         parent.add(frame, weight=3)
         self.pose_button_frame = frame
+        notebook = ttk.Notebook(frame)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.pose_notebook = notebook
 
-        ttk.Label(frame, text="Pose").grid(row=0, column=0, sticky="w", padx=4, pady=4)
-        ttk.Label(frame, text="Load").grid(row=0, column=1, sticky="w", padx=4, pady=4)
-        ttk.Label(frame, text="Go").grid(row=0, column=2, sticky="w", padx=4, pady=4)
-        ttk.Label(frame, text="Save").grid(row=0, column=3, sticky="w", padx=4, pady=4)
+        taught_tab = ttk.Frame(notebook)
+        ik_ref_tab = ttk.Frame(notebook)
+        direction_tab = ttk.Frame(notebook)
+        reporting_tab = ttk.Frame(notebook)
+        notebook.add(taught_tab, text="Taught Poses")
+        notebook.add(ik_ref_tab, text="IK Reference Capture")
+        notebook.add(direction_tab, text="Servo Direction Observation")
+        notebook.add(reporting_tab, text="Reporting / YAML")
+
+        ttk.Label(taught_tab, text="Pose").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(taught_tab, text="Load").grid(row=0, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(taught_tab, text="Go").grid(row=0, column=2, sticky="w", padx=4, pady=4)
+        ttk.Label(taught_tab, text="Save").grid(row=0, column=3, sticky="w", padx=4, pady=4)
 
         for row, pose_name in enumerate(POSE_NAMES, start=1):
-            ttk.Label(frame, text=pose_name).grid(row=row, column=0, sticky="w", padx=4, pady=3)
-            ttk.Button(frame, text=f"Load {pose_name}", command=lambda name=pose_name: self.load_pose(name)).grid(
+            ttk.Label(taught_tab, text=pose_name).grid(row=row, column=0, sticky="w", padx=4, pady=3)
+            ttk.Button(taught_tab, text=f"Load {pose_name}", command=lambda name=pose_name: self.load_pose(name)).grid(
                 row=row, column=1, sticky="ew", padx=4, pady=3
             )
-            ttk.Button(frame, text=f"Go {pose_name}", command=lambda name=pose_name: self.go_pose(name)).grid(
+            ttk.Button(taught_tab, text=f"Go {pose_name}", command=lambda name=pose_name: self.go_pose(name)).grid(
                 row=row, column=2, sticky="ew", padx=4, pady=3
             )
-            ttk.Button(frame, text=f"Save {pose_name}", command=lambda name=pose_name: self.save_pose(name)).grid(
+            ttk.Button(taught_tab, text=f"Save {pose_name}", command=lambda name=pose_name: self.save_pose(name)).grid(
                 row=row, column=3, sticky="ew", padx=4, pady=3
             )
 
-        custom = ttk.LabelFrame(frame, text="Custom Pose")
+        custom = ttk.LabelFrame(taught_tab, text="Custom Pose")
         custom.grid(row=len(POSE_NAMES) + 1, column=0, columnspan=4, sticky="ew", padx=4, pady=(8, 4))
         ttk.Entry(custom, textvariable=self.custom_pose_name_var, width=22).pack(side=tk.LEFT, padx=(4, 6), pady=4)
         ttk.Button(custom, text="Save Custom", command=self.save_custom_pose).pack(side=tk.LEFT, padx=(0, 6), pady=4)
-        frame.columnconfigure(0, weight=1)
-        frame.columnconfigure(1, weight=1)
-        frame.columnconfigure(2, weight=1)
-        frame.columnconfigure(3, weight=1)
 
-    def _build_log_and_yaml_panel(self, parent: ttk.Panedwindow) -> None:
-        log_frame = ttk.LabelFrame(parent, text="Report / Log")
-        yaml_frame = ttk.LabelFrame(parent, text="Current Pose YAML")
-        parent.add(log_frame, weight=3)
-        parent.add(yaml_frame, weight=2)
+        ik_ref = ttk.LabelFrame(ik_ref_tab, text="IK Reference Capture")
+        ik_ref.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        self.log_widget = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=20)
-        self.log_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-        self.log_widget.configure(state=tk.DISABLED)
+        ttk.Label(ik_ref, text="Reference Name").grid(row=0, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(ik_ref, textvariable=self.ik_ref_name_var, width=24).grid(row=0, column=1, sticky="ew", padx=4, pady=4)
+        ttk.Label(ik_ref, text="Z Mode").grid(row=0, column=2, sticky="w", padx=4, pady=4)
+        ttk.Combobox(
+            ik_ref,
+            textvariable=self.ik_ref_z_mode_var,
+            values=("safe_hover", "pre_pick", "pick", "lift", "custom"),
+            state="readonly",
+            width=12,
+        ).grid(row=0, column=3, sticky="w", padx=4, pady=4)
 
-        self.yaml_widget = scrolledtext.ScrolledText(yaml_frame, wrap=tk.NONE, height=20)
+        ttk.Label(ik_ref, text="board_x_cm").grid(row=1, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(ik_ref, textvariable=self.ik_ref_board_x_var, width=12).grid(row=1, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, text="board_y_cm").grid(row=1, column=2, sticky="w", padx=4, pady=4)
+        ttk.Entry(ik_ref, textvariable=self.ik_ref_board_y_var, width=12).grid(row=1, column=3, sticky="w", padx=4, pady=4)
+
+        ttk.Label(ik_ref, text="z_m").grid(row=2, column=0, sticky="w", padx=4, pady=4)
+        ttk.Entry(ik_ref, textvariable=self.ik_ref_z_var, width=12).grid(row=2, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, text="Object/Class Note").grid(row=2, column=2, sticky="w", padx=4, pady=4)
+        ttk.Entry(ik_ref, textvariable=self.ik_ref_object_class_var, width=18).grid(row=2, column=3, sticky="ew", padx=4, pady=4)
+
+        ttk.Label(ik_ref, text="Gripper State").grid(row=3, column=0, sticky="w", padx=4, pady=4)
+        ttk.Combobox(
+            ik_ref,
+            textvariable=self.ik_ref_gripper_state_var,
+            values=("open", "close", "half_open", "unknown"),
+            state="readonly",
+            width=14,
+        ).grid(row=3, column=1, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, text="Comment").grid(row=3, column=2, sticky="w", padx=4, pady=4)
+        ttk.Entry(ik_ref, textvariable=self.ik_ref_comment_var, width=24).grid(
+            row=3, column=3, sticky="ew", padx=4, pady=4
+        )
+
+        ttk.Label(ik_ref, text="Validation").grid(row=4, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, textvariable=self.ik_ref_validation_var).grid(row=4, column=1, sticky="w", padx=4, pady=4)
+        ttk.Checkbutton(
+            ik_ref,
+            text="Allow out-of-board save",
+            variable=self.ik_ref_out_of_board_allowed_var,
+            command=self._refresh_ik_ref_preview,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, text="robot_x_m").grid(row=4, column=2, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, textvariable=self.ik_ref_robot_x_var).grid(row=4, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, text="robot_y_m").grid(row=5, column=2, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, textvariable=self.ik_ref_robot_y_var).grid(row=5, column=3, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, text="Active IK Ref").grid(row=6, column=0, sticky="w", padx=4, pady=4)
+        ttk.Label(ik_ref, textvariable=self.ik_ref_active_name_var).grid(row=6, column=1, sticky="w", padx=4, pady=4)
+
+        button_row1 = ttk.Frame(ik_ref)
+        button_row1.grid(row=7, column=0, columnspan=4, sticky="ew", padx=4, pady=(6, 2))
+        ttk.Button(button_row1, text="Use Last YOLO Board Target", command=self.use_last_yolo_board_target).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(button_row1, text="Compute Robot XY", command=self.compute_robot_xy).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(button_row1, text="Save IK Reference From Current Pose", command=self.save_ik_reference_from_current_pose).pack(side=tk.LEFT)
+
+        button_row2 = ttk.Frame(ik_ref)
+        button_row2.grid(row=8, column=0, columnspan=4, sticky="ew", padx=4, pady=(2, 4))
+        ttk.Button(button_row2, text="Load IK Reference", command=self.load_ik_reference).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(button_row2, text="Go IK Reference Servo Pose", command=self.go_ik_reference_servo_pose).pack(side=tk.LEFT)
+
+        self.ik_ref_preview_widget = scrolledtext.ScrolledText(ik_ref, wrap=tk.WORD, height=14)
+        self.ik_ref_preview_widget.grid(row=9, column=0, columnspan=4, sticky="nsew", padx=4, pady=(4, 4))
+        self.ik_ref_preview_widget.configure(state=tk.DISABLED)
+
+        direction_frame = ttk.LabelFrame(direction_tab, text="Servo Direction Observation")
+        direction_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        headers = ("Channel", "Function", "+ Motion", "+ From", "+ To", "- Motion", "- From", "- To", "Status", "Note")
+        for col, label in enumerate(headers):
+            ttk.Label(direction_frame, text=label).grid(row=0, column=col, sticky="w", padx=4, pady=4)
+        for row, channel in enumerate(CHANNELS, start=1):
+            ttk.Label(direction_frame, text=CHANNEL_META[channel]["label"]).grid(row=row, column=0, sticky="w", padx=4, pady=3)
+            ttk.Label(direction_frame, text=CHANNEL_META[channel]["joint"]).grid(row=row, column=1, sticky="w", padx=4, pady=3)
+            ttk.Combobox(direction_frame, textvariable=self.direction_plus_vars[channel], values=OBSERVATION_OPTIONS[channel], state="readonly", width=18).grid(
+                row=row, column=2, sticky="ew", padx=4, pady=3
+            )
+            ttk.Entry(direction_frame, textvariable=self.direction_plus_from_vars[channel], width=6).grid(row=row, column=3, sticky="ew", padx=4, pady=3)
+            ttk.Entry(direction_frame, textvariable=self.direction_plus_to_vars[channel], width=6).grid(row=row, column=4, sticky="ew", padx=4, pady=3)
+            ttk.Combobox(direction_frame, textvariable=self.direction_minus_vars[channel], values=OBSERVATION_OPTIONS[channel], state="readonly", width=18).grid(
+                row=row, column=5, sticky="ew", padx=4, pady=3
+            )
+            ttk.Entry(direction_frame, textvariable=self.direction_minus_from_vars[channel], width=6).grid(row=row, column=6, sticky="ew", padx=4, pady=3)
+            ttk.Entry(direction_frame, textvariable=self.direction_minus_to_vars[channel], width=6).grid(row=row, column=7, sticky="ew", padx=4, pady=3)
+            ttk.Combobox(direction_frame, textvariable=self.direction_status_vars[channel], values=OBSERVATION_STATUS_OPTIONS, state="readonly", width=18).grid(
+                row=row, column=8, sticky="ew", padx=4, pady=3
+            )
+            ttk.Entry(direction_frame, textvariable=self.direction_note_vars[channel], width=28).grid(row=row, column=9, sticky="ew", padx=4, pady=3)
+
+        direction_buttons = ttk.Frame(direction_frame)
+        direction_buttons.grid(row=len(CHANNELS) + 1, column=0, columnspan=10, sticky="ew", padx=4, pady=(8, 4))
+        ttk.Button(direction_buttons, text="Save Direction Observations", command=self.save_direction_observations).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(direction_buttons, text="Reload Direction Observations", command=self.reload_direction_observations).pack(side=tk.LEFT)
+
+        report_frame = ttk.Frame(reporting_tab)
+        report_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        ttk.Label(report_frame, text="Current Pose Reporting / YAML Preview").pack(anchor="w", padx=4, pady=(0, 4))
+        ttk.Label(report_frame, text="YAML preview stays here so the bottom log panel remains visible.").pack(
+            anchor="w", padx=4, pady=(0, 6)
+        )
+        self.yaml_widget = scrolledtext.ScrolledText(report_frame, wrap=tk.NONE, height=24)
         self.yaml_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         self.yaml_widget.configure(state=tk.DISABLED)
 
-        button_bar = ttk.Frame(yaml_frame)
+        button_bar = ttk.Frame(report_frame)
         button_bar.pack(fill=tk.X, padx=4, pady=(0, 4))
         ttk.Button(button_bar, text="Copy YAML to Clipboard", command=self.copy_yaml_to_clipboard).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(button_bar, text="Export Session Log", command=self.export_session_log).pack(side=tk.LEFT)
+
+        taught_tab.columnconfigure(0, weight=1)
+        taught_tab.columnconfigure(1, weight=1)
+        taught_tab.columnconfigure(2, weight=1)
+        taught_tab.columnconfigure(3, weight=1)
+        ik_ref.columnconfigure(1, weight=1)
+        ik_ref.columnconfigure(3, weight=1)
+        ik_ref.rowconfigure(9, weight=1)
+
+    def _build_bottom_panels(self, parent: ttk.Panedwindow) -> None:
+        log_frame = ttk.LabelFrame(parent, text="Log / Report")
+        viz_frame = ttk.LabelFrame(parent, text="Robot Pose Visualization / Telemetry")
+        parent.add(log_frame, weight=3)
+        parent.add(viz_frame, weight=4)
+
+        self.log_widget = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, height=16)
+        self.log_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.log_widget.configure(state=tk.DISABLED)
+
+        log_buttons = ttk.Frame(log_frame)
+        log_buttons.pack(fill=tk.X, padx=4, pady=(0, 4))
+        ttk.Button(log_buttons, text="Clear Log", command=self.clear_log).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(log_buttons, text="Copy Log", command=self.copy_log_to_clipboard).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(log_buttons, text="Export Log", command=self.export_session_log).pack(side=tk.LEFT)
+
+        viz_top = ttk.Frame(viz_frame)
+        viz_top.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        viz_bottom = ttk.Frame(viz_frame)
+        viz_bottom.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
+
+        top_view_frame = ttk.LabelFrame(viz_top, text="Top View")
+        side_view_frame = ttk.LabelFrame(viz_top, text="Side View")
+        top_view_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
+        side_view_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(4, 0))
+
+        self.top_view_canvas = tk.Canvas(top_view_frame, width=360, height=260, background="#ffffff", highlightthickness=1)
+        self.top_view_canvas.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.side_view_canvas = tk.Canvas(side_view_frame, width=360, height=260, background="#ffffff", highlightthickness=1)
+        self.side_view_canvas.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        ttk.Label(
+            viz_bottom,
+            text="Approximate pose preview based on current servo values and configured link lengths.",
+            wraplength=700,
+        ).pack(anchor="w", padx=4, pady=(0, 4))
+
+        self.telemetry_widget = scrolledtext.ScrolledText(viz_bottom, wrap=tk.WORD, height=12)
+        self.telemetry_widget.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        self.telemetry_widget.configure(state=tk.DISABLED)
 
     def _refresh_servo_limit_labels(self) -> None:
         for channel in CHANNELS:
@@ -533,6 +857,287 @@ class ServoPoseCalibrationGUI:
             self.yaml_widget.delete("1.0", tk.END)
             self.yaml_widget.insert("1.0", rendered)
             self.yaml_widget.configure(state=tk.DISABLED)
+
+    def _parse_float_field(self, label: str, value: str) -> float:
+        try:
+            return float(value)
+        except ValueError as exc:
+            raise ValueError(f"{label} must be numeric") from exc
+
+    def _current_ik_reference_name(self) -> str:
+        raw_name = self.ik_ref_name_var.get().strip().upper()
+        return raw_name.replace(" ", "_")
+
+    def _compute_robot_xy(self) -> tuple[float, float]:
+        board_x = self._parse_float_field("board_x_cm", self.ik_ref_board_x_var.get().strip())
+        board_y = self._parse_float_field("board_y_cm", self.ik_ref_board_y_var.get().strip())
+        cfg = self.transform_cfg["board_to_robot"]
+        base_x = float(cfg["robot_base_x_board_cm"])
+        base_y = float(cfg["robot_base_y_board_cm"])
+        yaw_rad = math.radians(float(cfg.get("robot_yaw_offset_deg", 0.0)))
+        dx = board_x - base_x
+        dy = board_y - base_y
+        robot_x_cm = math.cos(yaw_rad) * dx - math.sin(yaw_rad) * dy
+        robot_y_cm = math.sin(yaw_rad) * dx + math.cos(yaw_rad) * dy
+        return robot_x_cm / 100.0, robot_y_cm / 100.0
+
+    def _validate_ik_reference_inputs(self) -> tuple[bool, list[str]]:
+        errors: list[str] = []
+        try:
+            board_x = self._parse_float_field("board_x_cm", self.ik_ref_board_x_var.get().strip())
+            board_y = self._parse_float_field("board_y_cm", self.ik_ref_board_y_var.get().strip())
+            z_m = self._parse_float_field("z_m", self.ik_ref_z_var.get().strip())
+        except ValueError as exc:
+            return False, [str(exc)]
+
+        if z_m <= 0.0:
+            errors.append("z_m must be > 0")
+
+        out_of_board = not (0.0 <= board_x <= self.board_width_cm and 0.0 <= board_y <= self.board_height_cm)
+        if out_of_board and not self.ik_ref_out_of_board_allowed_var.get():
+            errors.append(
+                f"board target ({board_x:.2f}, {board_y:.2f}) cm is outside measured board "
+                f"[0,{self.board_width_cm:.1f}] x [0,{self.board_height_cm:.1f}] cm"
+            )
+        return not errors, errors
+
+    def _current_ik_reference_preview_payload(self) -> dict[str, Any]:
+        valid, errors = self._validate_ik_reference_inputs()
+        return {
+            "name": self._current_ik_reference_name() or "(unnamed)",
+            "active_ik_reference": self.ik_ref_active_name_var.get(),
+            "validation": {
+                "valid": valid,
+                "errors": errors,
+                "board_limits_cm": {"x_max": self.board_width_cm, "y_max": self.board_height_cm},
+                "out_of_board_allowed": bool(self.ik_ref_out_of_board_allowed_var.get()),
+            },
+            "board": {
+                "x_cm": self.ik_ref_board_x_var.get().strip(),
+                "y_cm": self.ik_ref_board_y_var.get().strip(),
+            },
+            "robot": {
+                "x_m": self.ik_ref_robot_x_var.get(),
+                "y_m": self.ik_ref_robot_y_var.get(),
+                "z_m": self.ik_ref_z_var.get().strip(),
+            },
+            "z_mode": self.ik_ref_z_mode_var.get().strip(),
+            "gripper_state": {
+                "value": self.ik_ref_gripper_state_var.get().strip(),
+            },
+            "notes": {
+                "object_class": self.ik_ref_object_class_var.get().strip(),
+                "comment": self.ik_ref_comment_var.get().strip(),
+            },
+            "servo": self._current_angles(),
+            "mode": self.mode_var.get(),
+            "direction_warning": self.safety_warning_var.get(),
+        }
+
+    def _refresh_ik_ref_preview(self) -> None:
+        if self.ik_ref_preview_widget is None:
+            return
+        preview_payload = self._current_ik_reference_preview_payload()
+        validation = preview_payload["validation"]
+        if validation["valid"]:
+            self.ik_ref_validation_var.set("VALID")
+        else:
+            self.ik_ref_validation_var.set("INVALID: " + "; ".join(validation["errors"]))
+        rendered = yaml.safe_dump(preview_payload, sort_keys=False)
+        self.ik_ref_preview_widget.configure(state=tk.NORMAL)
+        self.ik_ref_preview_widget.delete("1.0", tk.END)
+        self.ik_ref_preview_widget.insert("1.0", rendered)
+        self.ik_ref_preview_widget.configure(state=tk.DISABLED)
+
+    def _estimate_front_servo_deg(self) -> float:
+        candidates = []
+        for pose_name in ("HOVER_PICK_TEST", "PICK_TEST", "LIFT_TEST", "HOME_SAFE"):
+            pose = self.pose_cache.get(pose_name)
+            if pose and "ch1" in pose:
+                candidates.append(float(pose["ch1"]))
+        if candidates:
+            return sum(candidates) / len(candidates)
+        return 80.0
+
+    def _inverse_joint_deg(self, channel: str, servo_deg: float) -> float:
+        model_key_map = {
+            "ch1": "ch1_base_yaw",
+            "ch2": "ch2_shoulder_pitch",
+            "ch3": "ch3_elbow_pitch",
+            "ch4": "ch4_wrist_rotate",
+            "ch5": "ch5_wrist_pitch",
+        }
+        if channel == "ch1":
+            front = self._estimate_front_servo_deg()
+            direction = float(self.kin_cfg.get("servo_model", {}).get("ch1_base_yaw", {}).get("direction", 1))
+            offset = float(self.kin_cfg.get("servo_model", {}).get("ch1_base_yaw", {}).get("offset_deg", 0))
+            if direction == 0:
+                return 0.0
+            return (servo_deg - front - offset) / direction
+        model = self.kin_cfg.get("servo_model", {}).get(model_key_map[channel], {})
+        zero = float(model.get("zero_reference_deg", 90))
+        direction = float(model.get("direction", 1))
+        offset = float(model.get("offset_deg", 0))
+        if direction == 0:
+            return 0.0
+        return (servo_deg - zero - offset) / direction
+
+    def _approx_pose_geometry(self) -> dict[str, Any]:
+        angles = self._current_angles()
+        links = self.kin_cfg.get("links", {})
+        l1 = float(links.get("shoulder_to_elbow_m", 0.11716))
+        l2 = float(links.get("elbow_to_wrist_pitch_m", 0.12683))
+        tool = float(links.get("wrist_pitch_to_tcp_direct_m", 0.12))
+        shoulder_z = float(links.get("base_to_shoulder_m", 0.03798))
+
+        ch1_rel = self._inverse_joint_deg("ch1", float(angles["ch1"]))
+        ch2_rel = self._inverse_joint_deg("ch2", float(angles["ch2"]))
+        ch3_rel = self._inverse_joint_deg("ch3", float(angles["ch3"]))
+        ch5_rel = self._inverse_joint_deg("ch5", float(angles["ch5"]))
+
+        shoulder_rad = math.radians(ch2_rel)
+        elbow_rad = math.radians(ch3_rel)
+        wrist_rad = math.radians(ch5_rel)
+
+        elbow_x = l1 * math.cos(shoulder_rad)
+        elbow_z = shoulder_z + l1 * math.sin(shoulder_rad)
+        wrist_x = elbow_x + l2 * math.cos(shoulder_rad + elbow_rad)
+        wrist_z = elbow_z + l2 * math.sin(shoulder_rad + elbow_rad)
+        tcp_x = wrist_x + tool * math.cos(shoulder_rad + elbow_rad + wrist_rad)
+        tcp_z = wrist_z + tool * math.sin(shoulder_rad + elbow_rad + wrist_rad)
+
+        return {
+            "angles": angles,
+            "ch1_relative_deg": ch1_rel,
+            "shoulder_deg": ch2_rel,
+            "elbow_deg": ch3_rel,
+            "wrist_deg": ch5_rel,
+            "shoulder_point": (0.0, shoulder_z),
+            "elbow_point": (elbow_x, elbow_z),
+            "wrist_point": (wrist_x, wrist_z),
+            "tcp_point": (tcp_x, tcp_z),
+            "max_planar_reach_m": max(0.2, l1 + l2 + tool),
+            "max_height_m": max(0.25, shoulder_z + l1 + l2 + tool),
+        }
+
+    def _refresh_telemetry_preview(self) -> None:
+        if self.telemetry_widget is None:
+            return
+        slider = self._current_angles()
+        status = self._current_status_angles()
+        delta = {}
+        for channel in CHANNELS:
+            status_value = None if status is None else status.get(channel)
+            delta[channel] = None if status_value is None else slider[channel] - status_value
+        pose = self._approx_pose_geometry()
+        payload = {
+            "active_loaded_pose": self.active_loaded_pose_var.get(),
+            "active_ik_reference": self.ik_ref_active_name_var.get(),
+            "safety_warning": self.safety_warning_var.get(),
+            "mode": self.mode_var.get(),
+            "current_move_safe": self.current_command_var.get(),
+            "slider_pose": slider,
+            "status_pose": status,
+            "delta_slider_minus_status": delta,
+            "ik_reference_target": {
+                "board_x_cm": self.ik_ref_board_x_var.get().strip(),
+                "board_y_cm": self.ik_ref_board_y_var.get().strip(),
+                "robot_x_m": self.ik_ref_robot_x_var.get(),
+                "robot_y_m": self.ik_ref_robot_y_var.get(),
+                "z_m": self.ik_ref_z_var.get().strip(),
+                "z_mode": self.ik_ref_z_mode_var.get().strip(),
+                "gripper_state": self.ik_ref_gripper_state_var.get().strip(),
+            },
+            "estimated_pose": {
+                "base_heading_relative_deg": round(pose["ch1_relative_deg"], 2),
+                "estimated_tcp_x_m": round(pose["tcp_point"][0], 4),
+                "estimated_tcp_z_m": round(pose["tcp_point"][1], 4),
+            },
+            "direction_observations": {
+                "ch3": self.direction_observations_payload.get("observations", {}).get("ch3", {}),
+            },
+        }
+        rendered = yaml.safe_dump(payload, sort_keys=False)
+        self.telemetry_widget.configure(state=tk.NORMAL)
+        self.telemetry_widget.delete("1.0", tk.END)
+        self.telemetry_widget.insert("1.0", rendered)
+        self.telemetry_widget.configure(state=tk.DISABLED)
+
+    def _refresh_visualization(self) -> None:
+        if self.top_view_canvas is None or self.side_view_canvas is None:
+            return
+
+        pose = self._approx_pose_geometry()
+        target_x = None
+        target_y = None
+        try:
+            if self.ik_ref_robot_x_var.get() not in {"", "-"}:
+                target_x = float(self.ik_ref_robot_x_var.get())
+            if self.ik_ref_robot_y_var.get() not in {"", "-"}:
+                target_y = float(self.ik_ref_robot_y_var.get())
+        except ValueError:
+            target_x = None
+            target_y = None
+
+        canvas = self.top_view_canvas
+        canvas.delete("all")
+        w = max(int(canvas.winfo_width() or 360), 200)
+        h = max(int(canvas.winfo_height() or 260), 160)
+        ox = 40
+        oy = h / 2
+        scale = min((w - 80) / 0.36, (h - 40) / 0.30)
+        canvas.create_text(8, 8, text="Top view: robot X -> right, robot Y+ -> up", anchor="nw")
+        canvas.create_oval(ox - 6, oy - 6, ox + 6, oy + 6, fill="#222222")
+        canvas.create_text(ox - 10, oy + 12, text="Base", anchor="ne")
+
+        heading_rad = math.radians(pose["ch1_relative_deg"])
+        arm_len = 0.16
+        hx = ox + arm_len * scale * math.cos(heading_rad)
+        hy = oy - arm_len * scale * math.sin(heading_rad)
+        canvas.create_line(ox, oy, hx, hy, width=4, fill="#2c7be5", arrow=tk.LAST)
+        canvas.create_text(hx + 4, hy - 4, text=f"CH1 {pose['ch1_relative_deg']:.1f} deg", anchor="sw")
+
+        if target_x is not None and target_y is not None:
+            tx = ox + target_x * scale
+            ty = oy - target_y * scale
+            canvas.create_oval(tx - 5, ty - 5, tx + 5, ty + 5, fill="#d9480f", outline="")
+            canvas.create_text(tx + 8, ty - 8, text="IK ref target", anchor="sw", fill="#d9480f")
+
+        canvas = self.side_view_canvas
+        canvas.delete("all")
+        w = max(int(canvas.winfo_width() or 360), 200)
+        h = max(int(canvas.winfo_height() or 260), 160)
+        ox = 36
+        ground_y = h - 28
+        scale = min((w - 60) / pose["max_planar_reach_m"], (h - 40) / pose["max_height_m"])
+        canvas.create_text(8, 8, text="Side view: approximate CH2/CH3/CH5 chain", anchor="nw")
+        canvas.create_line(0, ground_y, w, ground_y, fill="#888888")
+
+        def pt(point: tuple[float, float]) -> tuple[float, float]:
+            return ox + point[0] * scale, ground_y - point[1] * scale
+
+        shoulder = pt(pose["shoulder_point"])
+        elbow = pt(pose["elbow_point"])
+        wrist = pt(pose["wrist_point"])
+        tcp = pt(pose["tcp_point"])
+
+        canvas.create_oval(shoulder[0] - 4, shoulder[1] - 4, shoulder[0] + 4, shoulder[1] + 4, fill="#222222")
+        canvas.create_line(*shoulder, *elbow, width=4, fill="#2b8a3e")
+        canvas.create_line(*elbow, *wrist, width=4, fill="#f08c00")
+        canvas.create_line(*wrist, *tcp, width=4, fill="#7b2cbf")
+        canvas.create_oval(tcp[0] - 4, tcp[1] - 4, tcp[0] + 4, tcp[1] + 4, fill="#c92a2a")
+        canvas.create_text(tcp[0] + 6, tcp[1] - 6, text=f"TCP ~ ({pose['tcp_point'][0]:.3f}, {pose['tcp_point'][1]:.3f}) m", anchor="sw")
+
+        try:
+            target_z = float(self.ik_ref_z_var.get().strip())
+        except ValueError:
+            target_z = None
+        if target_x is not None and target_z is not None:
+            tx = ox + target_x * scale
+            tz = ground_y - target_z * scale
+            canvas.create_line(tx, ground_y, tx, tz, fill="#d9480f", dash=(4, 2))
+            canvas.create_oval(tx - 4, tz - 4, tx + 4, tz + 4, fill="#d9480f", outline="")
+            canvas.create_text(tx + 6, tz - 6, text="Target Z", anchor="sw", fill="#d9480f")
 
     def _log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
@@ -584,8 +1189,78 @@ class ServoPoseCalibrationGUI:
         self.taught_payload["metadata"]["updated_at"] = utc_now()
         save_yaml_file(self.output_path, self.taught_payload)
 
+    def _save_ik_reference_yaml(self) -> None:
+        self.ik_reference_payload.setdefault("metadata", {})
+        self.ik_reference_payload["metadata"]["status"] = "ik_reference_samples"
+        self.ik_reference_payload["metadata"]["note"] = (
+            "Human-taught servo poses paired with measured board/robot coordinates for IK calibration."
+        )
+        self.ik_reference_payload["metadata"]["updated_at"] = utc_now()
+        save_yaml_file(self.ik_reference_output_path, self.ik_reference_payload)
+
     def _save_servo_cfg(self) -> None:
         save_yaml_file(Path(self.args.servo_config), self.servo_cfg)
+
+    def _observation_motion_block(
+        self,
+        from_var: tk.StringVar,
+        to_var: tk.StringVar,
+        observed_var: tk.StringVar,
+    ) -> dict[str, Any]:
+        block: dict[str, Any] = {
+            "observed": observed_var.get().strip() or "unknown",
+        }
+        if from_var.get().strip():
+            try:
+                block["from_deg"] = int(float(from_var.get().strip()))
+            except ValueError:
+                block["from_deg"] = from_var.get().strip()
+        if to_var.get().strip():
+            try:
+                block["to_deg"] = int(float(to_var.get().strip()))
+            except ValueError:
+                block["to_deg"] = to_var.get().strip()
+        return block
+
+    def save_direction_observations(self) -> None:
+        observations: dict[str, Any] = {}
+        for channel in CHANNELS:
+            observations[channel] = {
+                "function": CHANNEL_META[channel]["joint"],
+                "plus_motion": self._observation_motion_block(
+                    self.direction_plus_from_vars[channel],
+                    self.direction_plus_to_vars[channel],
+                    self.direction_plus_vars[channel],
+                ),
+                "minus_motion": self._observation_motion_block(
+                    self.direction_minus_from_vars[channel],
+                    self.direction_minus_to_vars[channel],
+                    self.direction_minus_vars[channel],
+                ),
+                "status": self.direction_status_vars[channel].get().strip() or "unknown",
+                "note": self.direction_note_vars[channel].get().strip(),
+            }
+        self.direction_observations_payload = {
+            "metadata": {
+                "status": "servo_direction_observations",
+                "updated_at": utc_now(),
+                "note": "Physical observations only. Do not directly treat as IK calibration until verified.",
+            },
+            "observations": observations,
+        }
+        save_yaml_file(self.direction_observations_output_path, self.direction_observations_payload)
+        self._update_direction_observation_warning()
+        self._refresh_telemetry_preview()
+        self._refresh_ik_ref_preview()
+        self._log(f"[CONFIG] Saved servo direction observations to {self.direction_observations_output_path}")
+
+    def reload_direction_observations(self) -> None:
+        self.direction_observations_payload = self._load_or_init_direction_observations_output()
+        self._load_direction_observations_into_vars()
+        self._update_direction_observation_warning()
+        self._refresh_telemetry_preview()
+        self._refresh_ik_ref_preview()
+        self._log("[CONFIG] Servo direction observations reloaded")
 
     def _sanitize_serial_line(self, raw: bytes) -> tuple[str | None, bool]:
         decoded = raw.decode("utf-8", errors="replace").strip()
@@ -777,6 +1452,8 @@ class ServoPoseCalibrationGUI:
                 self.latest_status_var.set(" ".join(f"{channel.upper()}={status_angles.get(channel, '-')}" for channel in CHANNELS))
                 self._log("[SERIAL] STATUS parsed into GUI status fields.")
                 self._refresh_yaml_preview()
+                self._refresh_telemetry_preview()
+                self._refresh_visualization()
             elif kind == "apply_angles":
                 self._apply_angles_to_ui(payload)
             elif kind == "worker_done":
@@ -793,6 +1470,9 @@ class ServoPoseCalibrationGUI:
         command = self._build_move_safe_command(move_angles)
         self.current_command_var.set(command)
         self._refresh_yaml_preview()
+        self._refresh_ik_ref_preview()
+        self._refresh_telemetry_preview()
+        self._refresh_visualization()
 
     def on_slider_change(self, _channel: str) -> None:
         self.active_loaded_pose_var.set("(manual sliders)")
@@ -825,6 +1505,11 @@ class ServoPoseCalibrationGUI:
         self.channel_vars["ch6"].set(int(self.gripper_calibration[key]))
         self.active_loaded_pose_var.set("(manual sliders)")
         self._update_command_preview()
+
+    def perform_gripper_action(self, key: str, label: str) -> None:
+        self.use_gripper_quick(key)
+        self._log(f"[POSE] {label} uses configured CH6={self.gripper_calibration[key]}.")
+        self.on_send_current_pose()
 
     def set_gripper_calibration_from_current(self, key: str) -> None:
         current = int(self.channel_vars["ch6"].get())
@@ -907,6 +1592,130 @@ class ServoPoseCalibrationGUI:
         self._refresh_yaml_preview()
         self._log(f"[POSE] Saved custom pose {safe_name} to {self.output_path}")
 
+    def use_last_yolo_board_target(self) -> None:
+        self._log("[IK_REF][WARN] No live YOLO-board target available in this GUI yet.")
+
+    def compute_robot_xy(self) -> None:
+        try:
+            robot_x_m, robot_y_m = self._compute_robot_xy()
+        except (KeyError, ValueError) as exc:
+            self._log(f"[IK_REF][ERROR] {exc}")
+            return
+        self.ik_ref_robot_x_var.set(f"{robot_x_m:.4f}")
+        self.ik_ref_robot_y_var.set(f"{robot_y_m:.4f}")
+        self._refresh_ik_ref_preview()
+        self._log(
+            f"[IK_REF] board=({self.ik_ref_board_x_var.get().strip()}, {self.ik_ref_board_y_var.get().strip()}) cm "
+            f"-> robot=({robot_x_m:.4f}, {robot_y_m:.4f}) m"
+        )
+
+    def save_ik_reference_from_current_pose(self) -> None:
+        sample_name = self._current_ik_reference_name()
+        if not sample_name:
+            self._log("[IK_REF][ERROR] Reference name is required.")
+            return
+
+        valid, errors = self._validate_ik_reference_inputs()
+        if not valid:
+            for error in errors:
+                self._log(f"[IK_REF][ERROR] {error}")
+            return
+
+        try:
+            board_x = self._parse_float_field("board_x_cm", self.ik_ref_board_x_var.get().strip())
+            board_y = self._parse_float_field("board_y_cm", self.ik_ref_board_y_var.get().strip())
+            z_m = self._parse_float_field("z_m", self.ik_ref_z_var.get().strip())
+            robot_x_m, robot_y_m = self._compute_robot_xy()
+        except (KeyError, ValueError) as exc:
+            self._log(f"[IK_REF][ERROR] {exc}")
+            return
+
+        self.ik_ref_robot_x_var.set(f"{robot_x_m:.4f}")
+        self.ik_ref_robot_y_var.set(f"{robot_y_m:.4f}")
+
+        self.ik_reference_payload.setdefault("samples", {})
+        self.ik_reference_payload["samples"][sample_name] = {
+            "status": "human_taught_live",
+            "source": "gui_ik_reference_capture",
+            "board": {
+                "x_cm": round(board_x, 4),
+                "y_cm": round(board_y, 4),
+            },
+            "robot": {
+                "x_m": round(robot_x_m, 4),
+                "y_m": round(robot_y_m, 4),
+                "z_m": round(z_m, 4),
+            },
+            "z_mode": self.ik_ref_z_mode_var.get().strip(),
+            "gripper_state": {
+                "value": self.ik_ref_gripper_state_var.get().strip() or "unknown",
+            },
+            "servo": self._current_angles(),
+            "notes": {
+                "object_class": self.ik_ref_object_class_var.get().strip() or "custom",
+                "comment": self.ik_ref_comment_var.get().strip(),
+            },
+            "autonomous_validated": False,
+        }
+        self._save_ik_reference_yaml()
+        self.ik_ref_active_name_var.set(sample_name)
+        self._refresh_ik_ref_preview()
+        self._log(f"[IK_REF] Saved {sample_name} to {self.ik_reference_output_path}")
+
+    def load_ik_reference(self) -> None:
+        sample_name = self._current_ik_reference_name()
+        if not sample_name:
+            self._log("[IK_REF][ERROR] Reference name is required.")
+            return
+        sample = self.ik_reference_payload.get("samples", {}).get(sample_name)
+        if not isinstance(sample, dict):
+            self._log(f"[IK_REF][ERROR] Sample {sample_name} not found in {self.ik_reference_output_path}.")
+            return
+
+        board = sample.get("board", {})
+        robot = sample.get("robot", {})
+        servo = sample.get("servo", {})
+        notes = sample.get("notes", {})
+        gripper_state = sample.get("gripper_state", {})
+        self.ik_ref_board_x_var.set(str(board.get("x_cm", "")))
+        self.ik_ref_board_y_var.set(str(board.get("y_cm", "")))
+        self.ik_ref_z_var.set(str(robot.get("z_m", "")))
+        loaded_z_mode = str(sample.get("z_mode", "custom"))
+        if loaded_z_mode == "hover":
+            loaded_z_mode = "safe_hover"
+            self._log("[IK_REF] Legacy z_mode 'hover' mapped to 'safe_hover'.")
+        self.ik_ref_z_mode_var.set(loaded_z_mode)
+        self.ik_ref_object_class_var.set(str(notes.get("object_class", "")))
+        self.ik_ref_comment_var.set(str(notes.get("comment", "")))
+        self.ik_ref_gripper_state_var.set(str(gripper_state.get("value", "unknown")))
+        if "x_m" in robot:
+            self.ik_ref_robot_x_var.set(f"{float(robot['x_m']):.4f}")
+        if "y_m" in robot:
+            self.ik_ref_robot_y_var.set(f"{float(robot['y_m']):.4f}")
+        servo_angles = self._angles_from_block(servo)
+        if servo_angles is not None:
+            self._apply_angles_to_ui(servo_angles)
+        self.ik_ref_active_name_var.set(sample_name)
+        self.active_loaded_pose_var.set(f"IK_REF:{sample_name}")
+        self._refresh_ik_ref_preview()
+        self._log(f"[IK_REF] Loaded {sample_name} into fields and sliders only.")
+
+    def go_ik_reference_servo_pose(self) -> None:
+        sample_name = self._current_ik_reference_name()
+        if not sample_name:
+            self._log("[IK_REF][ERROR] Reference name is required.")
+            return
+        sample = self.ik_reference_payload.get("samples", {}).get(sample_name)
+        if not isinstance(sample, dict):
+            self._log(f"[IK_REF][ERROR] Sample {sample_name} not found in {self.ik_reference_output_path}.")
+            return
+        servo_angles = self._angles_from_block(sample.get("servo", {}))
+        if servo_angles is None:
+            self._log(f"[IK_REF][ERROR] Sample {sample_name} does not contain a complete servo pose.")
+            return
+        self.ik_ref_active_name_var.set(sample_name)
+        self._move_to_pose_angles(f"IK_REF:{sample_name}", servo_angles)
+
     def load_pose(self, pose_name: str) -> None:
         angles = self.pose_cache.get(pose_name)
         if angles is None:
@@ -967,6 +1776,20 @@ class ServoPoseCalibrationGUI:
         self.root.clipboard_clear()
         self.root.clipboard_append(payload)
         self._log("[CONFIG] YAML copied to clipboard.")
+
+    def clear_log(self) -> None:
+        self.session_log_lines.clear()
+        if self.log_widget is not None:
+            self.log_widget.configure(state=tk.NORMAL)
+            self.log_widget.delete("1.0", tk.END)
+            self.log_widget.configure(state=tk.DISABLED)
+        self._log("[CONFIG] Log cleared.")
+
+    def copy_log_to_clipboard(self) -> None:
+        payload = "\n".join(self.session_log_lines).strip()
+        self.root.clipboard_clear()
+        self.root.clipboard_append(payload)
+        self._log("[CONFIG] Log copied to clipboard.")
 
     def export_session_log(self) -> None:
         path = filedialog.asksaveasfilename(

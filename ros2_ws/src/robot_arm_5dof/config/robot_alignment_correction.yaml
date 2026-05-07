@@ -1,11 +1,20 @@
 robot_alignment_correction:
-  status: identity_default
-  method: identity
-  created_at: null
-  samples: []
-  mean_error_before_cm: null
+  status: provisional_manual_click
+  method: translation
+  created_at: '2026-04-29T04:45:51.198503Z'
+  samples:
+  - target_name: center
+    target_board_x_cm: 13.5
+    target_board_y_cm: 9.0
+    actual_tcp_board_x_cm: 4.477720737457275
+    actual_tcp_board_y_cm: 17.55181884765625
+    error_x_cm: 9.022279262542725
+    error_y_cm: -8.55181884765625
+    clicked_pixel_u: 411
+    clicked_pixel_v: 210
+  mean_error_before_cm: 12.431215897668142
   correction:
-    translation_dx_cm: 0.0
-    translation_dy_cm: 0.0
+    translation_dx_cm: 9.022279262542725
+    translation_dy_cm: -8.55181884765625
     affine_2x3: null
-  note: no manual alignment correction collected yet; identity correction is used until calibration samples are saved
+  note: correction is valid only while camera, board, and robot base do not move
