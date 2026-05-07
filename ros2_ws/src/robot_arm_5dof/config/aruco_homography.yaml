@@ -1,0 +1,12 @@
+aruco_homography:
+  status: diagnostic_alternative_not_main_default
+  dictionary: DICT_4X4_50
+  source: board_marker_centers_ids_1_2_3_4
+  updated_at: '2026-05-07T14:49:27.634216Z'
+  reprojection_error_cm:
+    mean: 6.22767371927773e-07
+    max: 8.253002988528911e-07
+    worst_marker_id: 2
+  npy_file: /home/andra/robot_arm_5dof_yolo_ws/ros2_ws/src/robot_arm_5dof/config/aruco_homography.npy
+  warning: Alternative ArUco-derived homography only. Do not replace main checkerboard
+    homography silently.
