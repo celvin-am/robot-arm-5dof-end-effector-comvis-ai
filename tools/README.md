@@ -11,6 +11,10 @@ Main tool groups:
     test_yolo_camera.py
     calibrate_board_homography.py
     test_yolo_board_mapping.py
+    test_aruco_detection.py
+    calibrate_aruco_board_homography.py
+    calibrate_aruco_tcp_offset.py
+    test_aruco_gripper_target_error.py
     validate_calibration.py
 
   IK / transforms
@@ -30,7 +34,11 @@ Main tool groups:
     test_corrected_ik_to_move_safe.py
     test_yolo_to_ik_move_safe.py
     test_single_object_pick_place.py
+    test_yolo_ik_single_object_sequence.py
+    test_yolo_ik_one_cycle_sort.py
+    test_yolo_ik_multi_object_sort.py
     calibrate_robot_alignment.py
+    yolo_ik_sequence_utils.py
 
 Usage examples:
   python tools/test_yolo_camera.py
@@ -60,8 +68,33 @@ conversion for CH2/CH3/CH5.
 image and not guaranteed exact FK.
 [POSE] OPEN_GRIPPER, CLOSE_SOFT, and CLOSE_FULL are action shortcuts that apply
 the configured CH6 values to the current MOVE_SAFE pose.
+[POSE] MOVE TO CURRENT sends the current slider values as a MOVE_SAFE command.
 [POSE] Firmware HOME is not YAML HOME_SAFE.
 [CONFIG] The GUI updates `servo_config.yaml` and taught pose YAML only; it does
 not change firmware limits.
 [SAFETY] Physical validation remains human-confirmed only.
+[STATE] Single-object CAKE and DONUT semi-auto cycles are center-area
+user-confirmed only.
+[STATE] Multi-object sorter is guarded test mode, not final autonomy.
+[CONFIG] Center-area validated semi-auto settings are stored in
+`semi_auto_pick_place_config.yaml`.
+[CONFIG] Validated semi-auto values currently include camera_id=2,
+tcp_offset_mode=none, IK servo calibration enabled, z_mode correction enabled,
+safe_hover/pre_pick/lift z heights, and class-specific grasp offsets.
+[CONFIG] Semi-auto config also records current physical assumptions for object
+height (0.005 m) and bowl/container height (0.045 m).
+[POSE] Current drop still uses taught poses.
+[CONFIG] Future IK-based drop may use the configured pick/place Z policies as
+reference only.
+[SAFETY] Full-board validation is still pending.
+[SAFETY] Full autonomous multi-object sorting is not accepted until repeated
+guarded tests pass.
+[ARUCO] Board markers IDs 1-4 are diagnostic helpers for board validation and
+alternative homography checks.
+[ARUCO] Gripper marker ID 0 is for TCP/debug tracking only.
+[ARUCO] ArUco does not replace YOLO for object detection.
+[ARUCO] ArUco does not replace fixed Z calibration yet.
+[ARUCO] No closed-loop control is implemented yet.
+[ARUCO] A future phase may use ArUco gripper-vs-target error for correction
+after IK motion, but that is not implemented here.
 """

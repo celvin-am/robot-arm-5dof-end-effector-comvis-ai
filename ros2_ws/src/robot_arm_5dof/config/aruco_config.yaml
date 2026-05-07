@@ -1,0 +1,76 @@
+aruco:
+  dictionary: DICT_4X4_50
+  marker_size_cm: 3.0
+  camera_id: 2
+
+  board:
+    width_cm: 28.5
+    height_cm: 18.0
+    origin: top_left
+    x_direction: right
+    y_direction: down
+    coordinate_unit: cm
+    note: "Board actual measured print size is 28.5 cm x 18.0 cm."
+
+  board_markers:
+    id_1:
+      role: top_left
+      board_x_cm: 4.04
+      board_y_cm: 2.39
+      coordinate_type: marker_center
+      status: measured_from_aruco_detection
+      note: "Measured marker center after moving top-left marker inward."
+
+    id_2:
+      role: top_right
+      board_x_cm: 22.20
+      board_y_cm: 2.42
+      coordinate_type: marker_center
+      status: measured_from_aruco_detection
+      note: "Measured marker center after moving top-right marker inward."
+
+    id_3:
+      role: bottom_right
+      board_x_cm: 25.44
+      board_y_cm: 17.67
+      coordinate_type: marker_center
+      status: measured_from_aruco_detection
+      note: "Measured marker center from ArUco diagnostic output after current board setup."
+
+    id_4:
+      role: bottom_left
+      board_x_cm: 0.80
+      board_y_cm: 17.57
+      coordinate_type: marker_center
+      status: measured_from_aruco_detection
+      note: "Measured marker center from ArUco diagnostic output after current board setup."
+  gripper_marker:
+    id: 0
+    role: gripper_tcp_debug
+    marker_to_tcp_offset_cm:
+      x: null
+      y: null
+      z: null
+    calibration_status: not_calibrated
+    note: "Marker ID 0 is mounted on gripper. Offset from marker center to TCP is not calibrated yet."
+
+  validation:
+    required_board_marker_ids:
+      - 1
+      - 2
+      - 3
+      - 4
+    required_gripper_marker_id: 0
+    board_marker_validation_status: partial
+    gripper_marker_validation_status: not_detected_stably
+    note: "Board marker coordinates must be updated whenever markers are moved."
+
+  notes:
+    - "Marker ID 0 is mounted on gripper."
+    - "IDs 1-4 are board reference markers."
+    - "Board marker coordinates are marker center coordinates, not board outer corners."
+    - "If markers are moved or reprinted, rerun test_aruco_detection.py and update board_x_cm / board_y_cm."
+    - "Board outer dimensions remain 28.5 cm x 18.0 cm."
+    - "Current main mapping still uses checkerboard homography unless explicitly changed."
+    - "ArUco board homography is diagnostic until explicitly validated and selected."
+    - "marker_to_tcp_offset_cm is marker center to TCP center offset, not yet calibrated."

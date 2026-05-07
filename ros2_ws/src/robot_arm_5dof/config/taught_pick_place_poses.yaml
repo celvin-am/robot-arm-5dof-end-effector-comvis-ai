@@ -121,7 +121,7 @@ poses:
     ch3: 120
     ch4: 86
     ch5: 45
-    ch6: 20
+    ch6: 15
   HOVER_DROP_TEST:
     description: Human-taught hover pose above generic drop zone.
     status: human_taught_live
@@ -133,7 +133,7 @@ poses:
     ch3: 140
     ch4: 86
     ch5: 30
-    ch6: 20
+    ch6: 15
   PLACE_TEST:
     description: Human-taught generic place pose.
     status: human_taught_live
@@ -157,7 +157,7 @@ poses:
     ch3: 125
     ch4: 95
     ch5: 50
-    ch6: 20
+    ch6: 15
   CAKE_DROP_HOVER:
     description: Human-taught CAKE drop hover pose.
     status: human_taught_live
@@ -169,7 +169,7 @@ poses:
     ch3: 140
     ch4: 86
     ch5: 30
-    ch6: 20
+    ch6: 15
   CAKE_DROP_PLACE:
     description: Human-taught CAKE drop place pose.
     status: human_taught_live
@@ -181,7 +181,7 @@ poses:
     ch3: 140
     ch4: 86
     ch5: 30
-    ch6: 20
+    ch6: 15
   DONUT_DROP_HOVER:
     description: Human-taught DONUT drop hover pose.
     status: human_taught_live
@@ -193,7 +193,7 @@ poses:
     ch3: 95
     ch4: 86
     ch5: 30
-    ch6: 20
+    ch6: 15
   DONUT_DROP_PLACE:
     description: Human-taught DONUT drop place pose.
     status: human_taught_live
@@ -205,4 +205,4 @@ poses:
     ch3: 95
     ch4: 86
     ch5: 30
-    ch6: 20
+    ch6: 15

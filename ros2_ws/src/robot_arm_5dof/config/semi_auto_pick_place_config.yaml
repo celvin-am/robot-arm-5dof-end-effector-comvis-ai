@@ -1,0 +1,82 @@
+semi_auto_pick_place:
+  status: single_object_center_area_user_confirmed
+  validation_scope: single_object_center_area_user_confirmed
+  autonomous_multi_object_validated: false
+  multi_object_status: guarded_test_not_final_autonomous
+  camera_id: 2
+
+  ik:
+    tcp_offset_mode: none
+    use_ik_servo_calibration: true
+    use_z_mode_correction: true
+
+  z_heights_m:
+    safe_hover: 0.055
+    pre_pick: 0.015
+    lift: 0.125
+
+  validated_pick_region:
+    board_x_min_cm: 7.0
+    board_x_max_cm: 21.0
+    board_y_min_cm: 5.0
+    board_y_max_cm: 10.5
+    status: center_and_mid_region_validated_only
+    note: Lower board row is not live validated for pre-pick. Reject by default.
+
+  object_geometry:
+    default_object_height_m: 0.005
+    cake_height_m: 0.005
+    donut_height_m: 0.005
+
+  container_geometry:
+    cake_bowl_height_m: 0.045
+    donut_bowl_height_m: 0.045
+
+  pick_z_policy:
+    object_height_m: 0.005
+    pre_pick_clearance_above_object_m: 0.010
+    pre_pick_z_m: 0.015
+
+  place_z_policy:
+    container_height_m: 0.045
+    drop_place_clearance_above_container_m: 0.015
+    drop_place_z_m: 0.060
+    drop_hover_clearance_above_container_m: 0.055
+    drop_hover_z_m: 0.100
+    status: future_ik_drop_reference_only
+
+  grasp_offsets:
+    donut:
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      status: live_validated_center_area
+    cake:
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      status: live_validated_center_area
+
+  gripper:
+    donut:
+      open_angle_deg: 50
+      close_angle_deg: 15
+    cake:
+      open_angle_deg: 50
+      close_angle_deg: 15
+
+  drop_poses:
+    donut:
+      hover: DONUT_DROP_HOVER
+      place: DONUT_DROP_PLACE
+      bowl: blue
+      status: live_validated
+    cake:
+      hover: CAKE_DROP_HOVER
+      place: CAKE_DROP_PLACE
+      bowl: pink
+      status: live_validated
+
+  multi_object:
+    max_objects_default: 4
+    require_rescan_after_each_pick: true
+    require_confirm_each_default: true
+    auto_mode_default: false

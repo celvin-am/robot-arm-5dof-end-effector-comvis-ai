@@ -24,6 +24,21 @@ Build a 5 DOF robot arm plus gripper for **class-based sorting** of donut and ca
 
 The project must be developed in small, validated phases. Do not attempt to implement the full autonomous system in one pass.
 
+Current guarded semi-auto status:
+
+```text
+- Single-object CAKE and DONUT center-area semi-auto cycles have user-confirmed
+  validation inputs for camera_id=2, tcp_offset_mode=none, IK servo calibration,
+  z_mode correction, z heights, class grasp offsets, and taught drop poses.
+- This does NOT mean full-board or full autonomous validation.
+- Multi-object sorting remains guarded test mode only, with rescans and explicit
+  safety confirmations. It is not final accepted autonomy.
+- ArUco board markers (IDs 1-4) and gripper marker (ID 0) are diagnostic
+  helpers for board validation and TCP/debug tracking only. They do not
+  replace YOLO object detection, fixed Z calibration, or checkerboard
+  homography as the main accepted workflow.
+```
+
 ---
 
 ## 2. Fixed System Decisions
@@ -101,6 +116,45 @@ Current homography and board-to-robot work must use the actual measured print si
 not the nominal 27 cm x 18 cm design size.
 Changing board dimensions means homography must be recalibrated before trusting
 pixel-to-board coordinates.
+```
+
+ArUco diagnostic note:
+
+```text
+- ArUco board markers may be used to validate or compute an alternative
+  homography, but they must not silently replace the current accepted
+  checkerboard homography.
+- ArUco gripper marker ID 0 may be used to estimate marker/TCP debug error in
+  board coordinates.
+- No closed-loop correction from ArUco is implemented yet.
+```
+
+Current semi-auto center-area validated offsets and heights:
+
+```text
+DONUT grasp offset: board_x +0.39 cm, board_y -0.10 cm
+CAKE  grasp offset: board_x +0.39 cm, board_y -0.10 cm
+safe_hover_z_m: 0.055
+pre_pick_z_m:   0.015
+lift_z_m:       0.125
+```
+
+Current physical height assumptions used for config reference:
+
+```text
+object height (cake/donut piece): 0.005 m
+container / bowl height:          0.045 m
+pre_pick_z_m is interpreted as TCP height from board
+pre_pick clearance above object is roughly 0.010 m
+```
+
+Drop note:
+
+```text
+Current drop still uses taught poses.
+Future IK-based drop may use configured container-height and drop-Z policy
+references, but this is not yet the accepted motion path and does not imply
+full autonomous validation.
 ```
 
 ### 2.3 YOLO Model

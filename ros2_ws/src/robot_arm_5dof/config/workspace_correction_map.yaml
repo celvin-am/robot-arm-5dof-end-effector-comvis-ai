@@ -1,0 +1,150 @@
+workspace_correction_map:
+  status: initial_center_seed_not_full_workspace_validated
+  validation_scope: center_area_only
+  warning: Center-region values are user-confirmed. Other regions are placeholders until live-tested one point and one z_mode at a time.
+
+  selection:
+    nearest_region_max_distance_cm: 5.0
+    note: Region selection does not bypass validated pick-region safety checks.
+
+  defaults:
+    grasp_offset:
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+    z_heights_m:
+      safe_hover: 0.055
+      pre_pick: 0.015
+      lift: 0.125
+
+  grid_points:
+    top_left:
+      board_x_cm: 7.0
+      board_y_cm: 5.0
+    top_center:
+      board_x_cm: 14.25
+      board_y_cm: 5.0
+    top_right:
+      board_x_cm: 21.0
+      board_y_cm: 5.0
+    mid_left:
+      board_x_cm: 7.0
+      board_y_cm: 9.0
+    mid_center:
+      board_x_cm: 14.25
+      board_y_cm: 9.0
+    mid_right:
+      board_x_cm: 21.0
+      board_y_cm: 9.0
+    low_left:
+      board_x_cm: 7.0
+      board_y_cm: 13.0
+    low_center:
+      board_x_cm: 14.25
+      board_y_cm: 13.0
+    low_right:
+      board_x_cm: 21.0
+      board_y_cm: 13.0
+
+  regions:
+    top_left:
+      board_x_cm: 7.0
+      board_y_cm: 5.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: untested
+      manual_results: {}
+    top_center:
+      board_x_cm: 14.25
+      board_y_cm: 5.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: untested
+      manual_results: {}
+    top_right:
+      board_x_cm: 21.0
+      board_y_cm: 5.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: untested
+      manual_results: {}
+    mid_left:
+      board_x_cm: 7.0
+      board_y_cm: 9.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: untested
+      manual_results: {}
+    mid_center:
+      board_x_cm: 14.25
+      board_y_cm: 9.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: live_validated
+      manual_results:
+        safe_hover:
+          result: pass
+          source: seeded_from_center_area_validation
+        pre_pick:
+          result: pass
+          source: seeded_from_center_area_validation
+        lift:
+          result: pass
+          source: seeded_from_center_area_validation
+    mid_right:
+      board_x_cm: 21.0
+      board_y_cm: 9.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: untested
+      manual_results: {}
+    low_left:
+      board_x_cm: 7.0
+      board_y_cm: 13.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: untested_lower_row
+      note: Lower board row is not live validated for pre-pick.
+      manual_results: {}
+    low_center:
+      board_x_cm: 14.25
+      board_y_cm: 13.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: untested_lower_row
+      note: Lower board row is not live validated for pre-pick.
+      manual_results: {}
+    low_right:
+      board_x_cm: 21.0
+      board_y_cm: 13.0
+      board_x_offset_cm: 0.39
+      board_y_offset_cm: -0.80
+      safe_hover_z_m: 0.055
+      pre_pick_z_m: 0.015
+      lift_z_m: 0.125
+      status: untested_lower_row
+      note: Lower board row is not live validated for pre-pick.
+      manual_results: {}

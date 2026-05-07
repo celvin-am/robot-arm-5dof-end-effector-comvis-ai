@@ -588,20 +588,20 @@ class ServoPoseCalibrationGUI:
 
         actions = ttk.LabelFrame(frame, text="Action")
         actions.grid(row=len(CHANNELS) + 3, column=0, columnspan=7, sticky="ew", padx=4, pady=(8, 4))
-        ttk.Button(actions, text="Send Current MOVE_SAFE", command=self.on_send_current_pose).grid(
-            row=0, column=0, sticky="ew", padx=4, pady=4
+        ttk.Button(actions, text="MOVE TO CURRENT", command=self.on_move_to_current).grid(
+            row=0, column=0, columnspan=2, sticky="ew", padx=4, pady=4
         )
         ttk.Button(actions, text="OPEN_GRIPPER", command=lambda: self.perform_gripper_action("open_deg", "OPEN_GRIPPER")).grid(
-            row=0, column=1, sticky="ew", padx=4, pady=4
-        )
-        ttk.Button(actions, text="CLOSE_SOFT", command=lambda: self.perform_gripper_action("close_soft_deg", "CLOSE_SOFT")).grid(
             row=0, column=2, sticky="ew", padx=4, pady=4
         )
-        ttk.Button(actions, text="CLOSE_FULL", command=lambda: self.perform_gripper_action("close_full_deg", "CLOSE_FULL")).grid(
-            row=0, column=3, sticky="ew", padx=4, pady=4
+        ttk.Button(actions, text="CLOSE_SOFT", command=lambda: self.perform_gripper_action("close_soft_deg", "CLOSE_SOFT")).grid(
+            row=1, column=0, sticky="ew", padx=4, pady=4
         )
-        ttk.Button(actions, text="STOP", command=self.on_stop).grid(row=0, column=4, sticky="ew", padx=4, pady=4)
-        for col in range(5):
+        ttk.Button(actions, text="CLOSE_FULL", command=lambda: self.perform_gripper_action("close_full_deg", "CLOSE_FULL")).grid(
+            row=1, column=1, sticky="ew", padx=4, pady=4
+        )
+        ttk.Button(actions, text="STOP", command=self.on_stop).grid(row=1, column=2, sticky="ew", padx=4, pady=4)
+        for col in range(3):
             actions.columnconfigure(col, weight=1)
 
         grip = ttk.LabelFrame(frame, text="Gripper Calibration")
@@ -1757,7 +1757,13 @@ class ServoPoseCalibrationGUI:
         for note in clamp_notes:
             self._log(f"[SAFETY] {note}")
         command = self._build_move_safe_command(angles)
+        self._log(f"[SERIAL] Final command preview: {command}")
+        if not self.dry_run_mode:
+            self._log("[SAFETY] Live hardware MOVE_SAFE requested.")
         self.queue_serial_action(SerialAction(command, expect_motion=True, apply_angles_on_done=angles, user_label="MOVE_SAFE"))
+
+    def on_move_to_current(self) -> None:
+        self.on_send_current_pose()
 
     def on_stop(self) -> None:
         if self.dry_run_mode:
